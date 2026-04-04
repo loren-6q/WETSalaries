@@ -28,7 +28,7 @@
     <!-- Babel for JSX processing -->
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 </head>
-<body class="bg-slate-50 dark:bg-slate-950">
+<body class="bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100">
     <div id="root"></div>
 
     <script type="text/babel" data-type="module">
@@ -38,7 +38,7 @@
           Users, DollarSign, FileUp, Plus, Search, Trash2, Edit2, CheckCircle2, 
           XCircle, History, Calendar, ArrowRightLeft, AlertCircle, Check, 
           ArrowUpDown, BarChart3, TrendingUp, ChevronDown, ChevronUp, Settings, 
-          Scale, AlertTriangle, Eye, EyeOff, Database, Info, Filter, Users2
+          Scale, AlertTriangle, Eye, EyeOff, Database, Info, Filter, Users2, Layers
         } from 'lucide-react';
 
         import { initializeApp } from 'https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js';
@@ -52,7 +52,7 @@
 
         // --- Configuration ---
         const firebaseConfig = {
-          apiKey: "AIzaSyCMnCHXOxe6g3m71xpTz5QO78fHDM2d0uA",
+          apiKey: "AIzaSyAy5dE4_Dwu8zD-DYxJ24PHqmwUyTQSkB0",
           authDomain: "wetsalaries.firebaseapp.com",
           projectId: "wetsalaries",
           storageBucket: "wetsalaries.firebasestorage.app",
@@ -65,7 +65,7 @@
         const auth = getAuth(app);
         const db = getFirestore(app);
 
-        // --- Requested Palette ---
+        // --- Global Constants ---
         const COLOR_OPTIONS = [
           { name: 'RED', hex: '#ef4444' }, { name: 'LIGHT RED', hex: '#ff6666' },
           { name: 'ORANGE', hex: '#f97316' }, { name: 'LIGHT ORANGE', hex: '#fdba74' },
@@ -116,9 +116,7 @@
           return `rgb(${r}, ${g}, ${b})`;
         };
 
-        const getDeptDotColor = (deptName, configs) => {
-          return getHexColor(configs?.find(c => c.name === deptName)?.color);
-        };
+        const getDeptDotColor = (deptName, configs) => getHexColor(configs?.find(c => c.name === deptName)?.color);
 
         const getSortScore = (member, deptNames) => {
           if (!member) return 99999999;
@@ -126,10 +124,10 @@
           const deptIdx = deptNames.indexOf(member.department);
           let nameIdx = 999;
           if (member.department === 'Management') {
-            const foundIdx = MANAGEMENT_ORDER.indexOf(member.name?.trim());
+            const foundIdx = MANAGEMENT_ORDER.indexOf((member.name || "").trim());
             nameIdx = foundIdx === -1 ? 900 : foundIdx;
           } else {
-            nameIdx = member.name?.trim().toLowerCase().charCodeAt(0) || 999;
+            nameIdx = (member.name || "").trim().toLowerCase().charCodeAt(0) || 999;
           }
           return statusWeight + (deptIdx * 1000) + nameIdx;
         };
@@ -148,22 +146,8 @@
           return cleanDb === cleanTarget || cleanDb.includes(cleanTarget) || cleanTarget.includes(cleanDb);
         };
 
-        const parseDmyDate = (str) => {
-          if (!str) return new Date().toISOString();
-          try {
-            const parts = str.split(' ');
-            const dateParts = parts[0].split('/');
-            if (dateParts.length === 3) {
-              const d = parseInt(dateParts[0]);
-              const m = parseInt(dateParts[1]);
-              const y = parseInt(dateParts[2]);
-              return new Date(y, m - 1, d, 12, 0, 0).toISOString();
-            }
-            return new Date().toISOString();
-          } catch (e) { return new Date().toISOString(); }
-        };
+        // --- Main Components ---
 
-        // --- App Component ---
         function App() {
           const [user, setUser] = useState(null);
           const [activeTab, setActiveTab] = useState('summary');
@@ -173,6 +157,7 @@
           const [loading, setLoading] = useState(true);
           const [showInactive, setShowInactive] = useState(true);
           const [collapseExStaff, setCollapseExStaff] = useState(false);
+          const [groupHistoryByBatch, setGroupHistoryByBatch] = useState(true);
           
           const [confirmModal, setConfirmModal] = useState({ open: false, title: '', message: '', onConfirm: null });
           const [logFilter, setLogFilter] = useState("All");
@@ -221,53 +206,18 @@
             return uniqueYears.sort((a,b) => b-a);
           }, [salaries]);
 
-          const staffMap = useMemo(() => Object.fromEntries(staff.map(s => [s.name?.trim(), s])), [staff]);
+          const staffMap = useMemo(() => Object.fromEntries(staff.map(s => [(s.name || "").trim(), s])), [staff]);
           const sortedStaff = useMemo(() => [...staff].sort((a, b) => getSortScore(a, deptNames) - getSortScore(b, deptNames)), [staff, deptNames]);
-
-          const filteredLog = useMemo(() => {
-            let result = salaries.map(s => ({
-                ...s,
-                period: `${s.year}-${String(s.month).split('-')[1]}`
-            }));
-            if (logFilter !== "All") {
-              if (logFilter.startsWith("DEPT:")) {
-                const dName = logFilter.replace("DEPT:", "");
-                result = result.filter(s => staffMap[s.staffName?.trim()]?.department === dName);
-              } else if (logFilter.startsWith("STAFF:")) {
-                const sName = logFilter.replace("STAFF:", "");
-                result = result.filter(s => s.staffName?.trim().toLowerCase() === sName.toLowerCase());
-              }
-            }
-            if (logPeriodFilter !== "All") result = result.filter(s => s.period === logPeriodFilter);
-            
-            result.sort((a, b) => {
-              let valA = a[logSort.key];
-              let valB = b[logSort.key];
-              if (logSort.key === 'amount') { valA = Number(valA); valB = Number(valB); }
-              if (logSort.key === 'staffName') {
-                  const memberA = staffMap[a.staffName?.trim()];
-                  const memberB = staffMap[b.staffName?.trim()];
-                  valA = getSortScore(memberA, deptNames);
-                  valB = getSortScore(memberB, deptNames);
-              }
-              if (valA < valB) return logSort.dir === 'asc' ? -1 : 1;
-              if (valA > valB) return logSort.dir === 'asc' ? 1 : -1;
-              return 0;
-            });
-            return result;
-          }, [salaries, logFilter, logPeriodFilter, logSort, staffMap, deptNames]);
 
           const ledgerData = useMemo(() => {
             const currentYear = Number(selectedCalendarYear);
             return sortedStaff
               .filter(s => (deptFilter === 'All' || s.department === deptFilter))
               .map(member => {
-                const memberName = member.name?.trim().toLowerCase();
-                const memberSalaries = salaries.filter(s => s.staffName?.trim().toLowerCase() === memberName);
-                
+                const memberName = (member.name || "").trim().toLowerCase();
+                const memberSalaries = salaries.filter(s => (s.staffName || "").trim().toLowerCase() === memberName);
                 const payoutRow = { ...member, type: 'payout', monthlyActivity: {} };
                 const loanRow = { ...member, type: 'loan', monthlyActivity: {} };
-
                 const previousBalance = memberSalaries
                     .filter(s => Number(s.year) < currentYear)
                     .reduce((sum, r) => {
@@ -276,9 +226,7 @@
                         if (t === 'repayment') return sum - Number(r.amount);
                         return sum;
                     }, 0);
-                
                 loanRow.balanceForward = previousBalance;
-
                 MONTHS.forEach(m => {
                   const monthRecords = memberSalaries.filter(s => isSameMonth(s.month, m) && Number(s.year) === currentYear);
                   const pAmt = monthRecords.filter(r => ['salary', 'advance'].includes(String(r.type).toLowerCase())).reduce((a, c) => a + Number(c.amount), 0);
@@ -292,13 +240,10 @@
                   payoutRow.monthlyActivity[m] = pAmt !== 0;
                   loanRow.monthlyActivity[m] = monthRecords.some(r => ['advance', 'repayment'].includes(String(r.type).toLowerCase()));
                 });
-
                 payoutRow.rowTotal = MONTHS.reduce((s, m) => s + (payoutRow[m] || 0), 0);
                 loanRow.rowTotal = previousBalance + MONTHS.reduce((s, m) => s + (loanRow[m] || 0), 0);
-                
                 const hasYearActivity = memberSalaries.some(s => Number(s.year) === currentYear);
                 loanRow.hasLoanActivity = loanRow.balanceForward !== 0 || loanRow.rowTotal !== 0 || MONTHS.some(m => loanRow[m] !== 0);
-
                 return { payoutRow, loanRow, hasYearActivity };
               }).filter(row => row.hasYearActivity || row.loanRow.hasLoanActivity || row.payoutRow.status === 'active');
           }, [salaries, sortedStaff, selectedCalendarYear, deptFilter]);
@@ -317,35 +262,43 @@
             return totals;
           }, [ledgerData]);
 
-          const handleCSVUpload = async (e) => {
-            if (!user) return;
-            const file = e.target.files[0];
-            if (!file) return;
-            const reader = new FileReader();
-            reader.onload = async (event) => {
-              const lines = event.target.result.split('\n').filter(l => l.trim());
-              const currentNames = new Set(staff.map(s => s.name?.trim().toLowerCase()));
-              let batch = writeBatch(db);
-              let opCount = 0;
-              for (let i = 1; i < lines.length; i++) {
-                const parts = lines[i].split(',').map(v => v?.trim());
-                if (parts.length < 9) continue;
-                const rawDate = parts[0], yr = parseInt(parts[2]), mo = parts[3], amt = parseFloat(parts[4]), type = parts[5], name = parts[6], dept = parts[7], base = parseFloat(parts[8]) || 0;
-                if (!name || name === 'Staff') continue;
-                if (!currentNames.has(name.toLowerCase())) {
-                  const sRef = doc(collection(db, 'artifacts', appId, 'public', 'data', 'staff'));
-                  batch.set(sRef, { name, department: dept, status: 'active', baseSalary: base });
-                  currentNames.add(name.toLowerCase()); opCount++;
-                }
-                const rRef = doc(collection(db, 'artifacts', appId, 'public', 'data', 'salaries'));
-                batch.set(rRef, { timestamp: parseDmyDate(rawDate), year: yr, month: mo, amount: amt, staffName: name, type: type });
-                opCount++;
-                if (opCount >= 450) { await batch.commit(); batch = writeBatch(db); opCount = 0; }
+          const filteredLog = useMemo(() => {
+            let result = salaries.map(s => ({
+                ...s,
+                period: `${s.year}-${String(s.month).split('-')[1]}`
+            }));
+            if (logFilter !== "All") {
+              if (logFilter.startsWith("DEPT:")) {
+                const dName = logFilter.replace("DEPT:", "");
+                result = result.filter(s => staffMap[(s.staffName || "").trim()]?.department === dName);
+              } else if (logFilter.startsWith("STAFF:")) {
+                const sName = logFilter.replace("STAFF:", "");
+                result = result.filter(s => (s.staffName || "").trim().toLowerCase() === sName.toLowerCase());
               }
-              await batch.commit();
-            };
-            reader.readAsText(file);
-          };
+            }
+            if (logPeriodFilter !== "All") result = result.filter(s => s.period === logPeriodFilter);
+            
+            result.sort((a, b) => {
+              if (groupHistoryByBatch && (a.batchId || 'z') !== (b.batchId || 'z')) {
+                return (b.timestamp || "").localeCompare(a.timestamp || "");
+              }
+              let valA = a[logSort.key];
+              let valB = b[logSort.key];
+              if (logSort.key === 'amount') { valA = Number(valA); valB = Number(valB); }
+              if (logSort.key === 'staffName') {
+                  const memberA = staffMap[(a.staffName || "").trim()];
+                  const memberB = staffMap[(b.staffName || "").trim()];
+                  valA = getSortScore(memberA, deptNames);
+                  valB = getSortScore(memberB, deptNames);
+              }
+              if (valA < valB) return logSort.dir === 'asc' ? -1 : 1;
+              if (valA > valB) return logSort.dir === 'asc' ? 1 : -1;
+              return 0;
+            });
+            return result;
+          }, [salaries, logFilter, logPeriodFilter, logSort, staffMap, deptNames, groupHistoryByBatch]);
+
+          if (loading) return <div className="h-screen flex items-center justify-center font-black text-slate-400">Loading Database...</div>;
 
           return (
             <div className="flex flex-col h-screen bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 overflow-hidden text-[13px] font-sans">
@@ -355,10 +308,6 @@
                   <span className="font-black tracking-tighter text-sm uppercase dark:text-white">Salaries</span>
                 </div>
                 <div className="flex gap-1.5">
-                  <label className="cursor-pointer bg-slate-100 dark:bg-slate-800 p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors">
-                    <FileUp size={14} className="dark:text-slate-300" />
-                    <input type="file" className="hidden" accept=".csv" onChange={handleCSVUpload} />
-                  </label>
                   <Button size="sm" onClick={() => setIsBulkModalOpen(true)}><Plus size={12}/> Add Salary</Button>
                 </div>
               </header>
@@ -381,16 +330,8 @@
                         ))}
                       </div>
                       <div className="flex items-center gap-2">
-                        <button 
-                            onClick={() => setCollapseExStaff(!collapseExStaff)}
-                            className={`flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-black uppercase border transition-all ${collapseExStaff ? 'bg-blue-600 border-blue-700 text-white shadow-sm' : 'bg-white dark:bg-slate-800 border-slate-300 dark:border-slate-700 text-slate-500'}`}
-                        >
-                            <Users2 size={12}/>
-                            <span>Ex-Staff</span>
-                        </button>
-                        <select value={selectedCalendarYear} onChange={e => setSelectedCalendarYear(parseInt(e.target.value))} className="bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 px-1.5 py-0.5 rounded font-bold text-[10px] outline-none text-slate-900 dark:text-white">
-                            {years.map(y => <option key={y} value={y}>{y}</option>)}
-                        </select>
+                        <button onClick={() => setCollapseExStaff(!collapseExStaff)} className={`flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-black uppercase border transition-all ${collapseExStaff ? 'bg-blue-600 border-blue-700 text-white shadow-sm' : 'bg-white dark:bg-slate-800 border-slate-300 dark:border-slate-700 text-slate-500'}`}><Users2 size={12}/><span>Ex-Staff</span></button>
+                        <select value={selectedCalendarYear} onChange={e => setSelectedCalendarYear(parseInt(e.target.value))} className="bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 px-1.5 py-0.5 rounded font-bold text-[10px] outline-none text-slate-900 dark:text-white">{years.map(y => <option key={y} value={y}>{y}</option>)}</select>
                       </div>
                     </div>
                     <div className="space-y-0.5">
@@ -406,59 +347,7 @@
                 )}
 
                 {activeTab === 'history' && (
-                  <div className="h-full flex flex-col p-1.5 space-y-2 text-slate-900">
-                    <div className="grid grid-cols-2 gap-2 shrink-0 sticky top-0 z-40 bg-slate-50 dark:bg-slate-950 pb-1 border-b dark:border-slate-800">
-                      <FilterDropdown label="Who:" value={logFilter} onChange={setLogFilter} staff={sortedStaff} deptNames={deptNames} />
-                      <div className="flex flex-col gap-0.5">
-                        <label className="text-[8px] font-black uppercase text-slate-500 pl-1 tracking-widest uppercase">When:</label>
-                        <select value={logPeriodFilter} onChange={e => setLogPeriodFilter(e.target.value)} className="w-full px-1.5 py-1 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded font-black text-xs outline-none text-slate-900 dark:text-white">
-                          <option value="All">All Periods</option>
-                          {[...new Set(salaries.map(s => `${s.year}-${String(s.month).split('-')[1]}`))].sort().map(p => <option key={p} value={p}>{p}</option>)}
-                        </select>
-                      </div>
-                    </div>
-                    <div className="flex-1 overflow-auto bg-white dark:bg-slate-900 rounded border-2 border-slate-400 dark:border-slate-700">
-                      <table className="w-full text-left border-collapse text-[11px]">
-                        <thead className="sticky top-0 z-10 text-[9px] uppercase font-black text-slate-600 dark:text-slate-300">
-                          <tr>
-                            <th className="p-1 cursor-pointer" style={{ backgroundColor: '#e8eaed' }} onClick={() => setLogSort(prev => ({key:'timestamp', dir: prev.dir === 'asc' ? 'desc' : 'asc'}))}>Date <ArrowUpDown size={7} className="inline"/></th>
-                            <th className="p-1 cursor-pointer" style={{ backgroundColor: '#e8eaed' }} onClick={() => setLogSort(prev => ({key:'staffName', dir: prev.dir === 'asc' ? 'desc' : 'asc'}))}>Staff <ArrowUpDown size={7} className="inline"/></th>
-                            <th className="p-1 cursor-pointer" style={{ backgroundColor: '#e8eaed' }} onClick={() => setLogSort(prev => ({key:'period', dir: prev.dir === 'asc' ? 'desc' : 'asc'}))}>Period <ArrowUpDown size={7} className="inline"/></th>
-                            <th className="p-1 cursor-pointer" style={{ backgroundColor: '#e8eaed' }} onClick={() => setLogSort(prev => ({key:'type', dir: prev.dir === 'asc' ? 'desc' : 'asc'}))}>Type <ArrowUpDown size={7} className="inline"/></th>
-                            <th className="p-1 text-right cursor-pointer" style={{ backgroundColor: '#e8eaed' }} onClick={() => setLogSort(prev => ({key:'amount', dir: prev.dir === 'asc' ? 'desc' : 'asc'}))}>Amount <ArrowUpDown size={7} className="inline"/></th>
-                            <th className="p-1" style={{ backgroundColor: '#e8eaed' }}>Notes</th>
-                            <th className="p-1" style={{ backgroundColor: '#e8eaed' }}></th>
-                          </tr>
-                        </thead>
-                        <tbody className="dark:text-slate-200">
-                          {filteredLog.map(s => {
-                            const member = staffMap[s.staffName?.trim()];
-                            const rowBg = getDeptRowColor(member?.department, deptConfigs);
-                            return (
-                              <tr key={s.id} className={`border-b border-slate-200 dark:border-slate-800 transition-colors ${member?.status === 'inactive' ? 'opacity-60 italic' : ''}`}>
-                                <td className="p-1 whitespace-nowrap bg-inherit" style={{ backgroundColor: rowBg }}>{formatDisplayDate(s.timestamp)}</td>
-                                <td className="p-1 font-black truncate max-w-[80px] bg-inherit" style={{ backgroundColor: rowBg }}>{String(s.staffName)}</td>
-                                <td className="p-1 font-bold bg-inherit" style={{ backgroundColor: rowBg }}>{s.period}</td>
-                                <td className="p-1 bg-inherit" style={{ backgroundColor: rowBg }}>
-                                  <span className={`px-1.5 py-0.5 rounded text-[8px] font-black uppercase ${String(s.type).toLowerCase()==='advance'?'text-red-600 bg-white/70':String(s.type).toLowerCase()==='repayment'?'text-green-600 bg-white/70':'text-slate-500'}`}>
-                                    {String(s.type)}
-                                  </span>
-                                </td>
-                                <td className={`p-1 text-right font-black bg-inherit ${String(s.type).toLowerCase()==='advance'?'text-red-600':String(s.type).toLowerCase()==='repayment'?'text-green-600':''}`} style={{ backgroundColor: rowBg }}>฿{Number(s.amount).toLocaleString()}</td>
-                                <td className="p-1 italic text-slate-500 text-[10px] truncate max-w-[100px] bg-inherit" style={{ backgroundColor: rowBg }}>{s.notes || '-'}</td>
-                                <td className="p-1 text-right bg-inherit" style={{ backgroundColor: rowBg }}>
-                                  <div className="flex gap-1 justify-end">
-                                    <button onClick={() => { setEditItem(s); setIsEditModalOpen(true); }} className="text-slate-400 hover:text-blue-500 p-0.5 transition-all"><Edit2 size={12}/></button>
-                                    <button onClick={() => deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'salaries', s.id))} className="text-slate-300 hover:text-red-500 p-0.5 transition-all"><Trash2 size={12}/></button>
-                                  </div>
-                                </td>
-                              </tr>
-                            );
-                          })}
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
+                  <HistoryView filteredLog={filteredLog} staffMap={staffMap} deptConfigs={deptConfigs} logSort={logSort} setLogSort={setLogSort} setEditItem={setEditItem} setIsEditModalOpen={setIsEditModalOpen} logFilter={logFilter} setLogFilter={setLogFilter} sortedStaff={sortedStaff} deptNames={deptNames} salaries={salaries} logPeriodFilter={logPeriodFilter} setLogPeriodFilter={setLogPeriodFilter} groupHistoryByBatch={groupHistoryByBatch} setGroupHistoryByBatch={setGroupHistoryByBatch} />
                 )}
                 
                 {activeTab === 'debt' && (
@@ -488,21 +377,16 @@
                 {activeTab === 'staff' && (
                   <div className="h-full flex flex-col p-1.5 space-y-1 text-slate-900">
                     <div className="flex gap-1.5 items-center justify-between sticky top-0 z-40 bg-slate-50 dark:bg-slate-950 pb-1 border-b dark:border-slate-800">
-                       <button onClick={() => setShowInactive(!showInactive)} className={`px-3 py-1 rounded-full border-2 border-slate-300 dark:border-slate-700 text-[10px] font-black uppercase flex items-center gap-1.5 transition-all ${showInactive ? 'bg-blue-600 text-white border-blue-700' : 'bg-white dark:bg-slate-800 text-slate-500'}`}>
-                          {showInactive ? <EyeOff size={12}/> : <Eye size={12}/>}
-                          {showInactive ? "Inactive Visible" : "Show Inactive"}
-                       </button>
+                       <button onClick={() => setShowInactive(!showInactive)} className={`px-3 py-1 rounded-full border-2 border-slate-300 dark:border-slate-700 text-[10px] font-black uppercase flex items-center gap-1.5 transition-all ${showInactive ? 'bg-blue-600 text-white border-blue-700' : 'bg-white dark:bg-slate-800 text-slate-500'}`}>{showInactive ? <EyeOff size={12}/> : <Eye size={12}/>}{showInactive ? "Inactive Visible" : "Show Inactive"}</button>
                        <div className="flex gap-1">
                          <Button variant="outline" size="sm" onClick={() => setIsDeptModalOpen(true)}><Settings size={12}/> Depts</Button>
-                         <Button size="sm" onClick={async () => {
-                            await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'staff'), { name: 'New Entry', department: 'Other', status: 'active', baseSalary: 0 });
-                         }}><Plus size={12}/> Add Staff</Button>
+                         <Button size="sm" onClick={async () => { await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'staff'), { name: 'New Entry', department: 'Other', status: 'active', baseSalary: 0 }); }}><Plus size={12}/> Add Staff</Button>
                        </div>
                     </div>
                     <div className="flex-1 overflow-auto bg-white dark:bg-slate-900 rounded border-2 border-slate-400 dark:border-slate-700">
                       <table className="w-full text-left border-collapse">
                         <thead className="sticky top-0 z-10 text-[10px] uppercase font-black text-slate-600 dark:text-slate-300">
-                          <tr><th className="px-2 py-1.5 uppercase" style={{ backgroundColor: '#e8eaed' }}>Name</th><th className="px-2 py-1.5 uppercase" style={{ backgroundColor: '#e8eaed' }}>Dept</th><th className="px-2 py-1.5 text-right uppercase" style={{ backgroundColor: '#e8eaed' }}>Base ฿</th><th className="px-2 py-1.5 text-center uppercase" style={{ backgroundColor: '#e8eaed' }}>Act</th><th className="px-2 py-1.5" style={{ backgroundColor: '#e8eaed' }}></th></tr>
+                          <tr><th className="px-2 py-1.5 uppercase bg-[#e8eaed] dark:bg-slate-800">Name</th><th className="px-2 py-1.5 uppercase bg-[#e8eaed] dark:bg-slate-800">Dept</th><th className="px-2 py-1.5 text-right uppercase bg-[#e8eaed] dark:bg-slate-800">Base ฿</th><th className="px-2 py-1.5 text-center uppercase bg-[#e8eaed] dark:bg-slate-800">Act</th><th className="px-2 py-1.5 bg-[#e8eaed] dark:bg-slate-800"></th></tr>
                         </thead>
                         <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                           {sortedStaff.map(member => {
@@ -512,7 +396,7 @@
                               <tr key={member.id} className={`leading-none ${member.status==='inactive'?'italic text-slate-400':''}`}>
                                 <td className="px-2 py-0.5" style={{ backgroundColor: rowBg }}>
                                   <div className="flex items-center gap-2">
-                                     <div className="w-1.5 h-1.5 rounded-full shrink-0 !opacity-100 border border-white/50 shadow-sm" style={{ backgroundColor: getDeptDotColor(member.department, deptConfigs) }}></div>
+                                     <div className="w-1.5 h-1.5 rounded-full shrink-0 border border-white/50 shadow-sm" style={{ backgroundColor: getDeptDotColor(member.department, deptConfigs) }}></div>
                                      <input className="bg-transparent font-black w-full outline-none p-0.5 rounded text-[16px]" defaultValue={member.name} onBlur={(e) => updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'staff', member.id), { name: e.target.value })} />
                                   </div>
                                 </td>
@@ -523,13 +407,7 @@
                                 </td>
                                 <td className="px-2 py-0.5 text-right" style={{ backgroundColor: rowBg }}><input type="number" className="bg-transparent text-right font-black outline-none w-full max-w-[100px] p-0.5 rounded text-[16px]" defaultValue={member.baseSalary || 0} onBlur={(e) => updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'staff', member.id), { baseSalary: parseFloat(e.target.value) || 0 })} /></td>
                                 <td className="px-2 py-0.5 text-center" style={{ backgroundColor: rowBg }}><button onClick={() => updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'staff', member.id), { status: member.status==='active'?'inactive':'active' })} className={`p-1 rounded-full ${member.status==='active'?'text-blue-600':'text-slate-300'}`}>{member.status==='active'?<CheckCircle2 size={20}/>:<XCircle size={20}/>}</button></td>
-                                <td className="px-2 py-0.5 text-right" style={{ backgroundColor: rowBg }}><button onClick={() => {
-                                    if (salaries.some(s => s.staffName?.trim().toLowerCase() === member.name?.trim().toLowerCase())) {
-                                        setConfirmModal({ open: true, title: 'Delete Blocked', message: `${member.name} has existing logs. Please mark them as 'Inactive' instead.`, onConfirm: null });
-                                    } else {
-                                        setConfirmModal({ open: true, title: 'Confirm Delete', message: `Delete ${member.name}?`, onConfirm: async () => { await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'staff', member.id)); setConfirmModal(prev => ({...prev, open: false})); } });
-                                    }
-                                }} className="text-slate-400 hover:text-red-500 p-1"><Trash2 size={16}/></button></td>
+                                <td className="px-2 py-0.5 text-right" style={{ backgroundColor: rowBg }}><button onClick={() => { if (salaries.some(s => (s.staffName || "").trim().toLowerCase() === (member.name || "").trim().toLowerCase())) { setConfirmModal({ open: true, title: 'Delete Blocked', message: `${member.name} has existing logs. Please mark them as 'Inactive' instead.`, onConfirm: null }); } else { setConfirmModal({ open: true, title: 'Confirm Delete', message: `Delete ${member.name}?`, onConfirm: async () => { await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'staff', member.id)); setConfirmModal(prev => ({...prev, open: false})); } }); } }} className="text-slate-400 hover:text-red-500 p-1"><Trash2 size={16}/></button></td>
                               </tr>
                             );
                           })}
@@ -540,9 +418,8 @@
                 )}
               </main>
 
-              {/* Shared Modals */}
               {confirmModal.open && (
-                <div className="fixed inset-0 z-[300] flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm">
+                <div className="fixed inset-0 z-[300] flex items-center justify-center p-4 bg-slate-950/80">
                     <div className="bg-white dark:bg-slate-900 max-sm w-full rounded-xl border-2 border-slate-400 dark:border-slate-700 shadow-2xl p-6 space-y-4 text-slate-900 dark:text-slate-100">
                        <div className="flex items-center gap-3 text-red-600"><AlertTriangle size={32} /><h3 className="font-black uppercase tracking-tight text-xl">{confirmModal.title}</h3></div>
                        <p className="font-bold text-slate-600 dark:text-slate-400 leading-relaxed text-sm">{confirmModal.message}</p>
@@ -554,9 +431,7 @@
                 </div>
               )}
 
-              {isDeptModalOpen && (
-                <DeptManagerModal configs={deptConfigs} onClose={() => setIsDeptModalOpen(false)} onSave={async (updated) => { await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'settings', 'config'), { depts: updated }); }} />
-              )}
+              {isDeptModalOpen && <DeptManagerModal configs={deptConfigs} onClose={() => setIsDeptModalOpen(false)} onSave={async (updated) => { await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'settings', 'config'), { depts: updated }); }} />}
 
               {isBulkModalOpen && (
                 <BulkPaymentModal 
@@ -564,11 +439,12 @@
                   deptConfigs={deptConfigs} 
                   salaries={salaries}
                   onClose={() => setIsBulkModalOpen(false)} 
-                  onSave={async (rows, yr, mo, dt) => {
+                  onSave={async (rows, yr, mo, dt, total) => {
                     const batch = writeBatch(db);
+                    const bId = crypto.randomUUID();
                     rows.forEach(r => {
                       if (!r.included) return;
-                      const base = { staffName: r.name, year: yr, month: mo, timestamp: new Date(dt).toISOString(), notes: r.notes };
+                      const base = { staffName: r.name, year: yr, month: mo, timestamp: dt ? new Date(dt).toISOString() : new Date().toISOString(), notes: r.notes, batchId: bId, batchTotal: total };
                       if (r.salary > 0) batch.set(doc(collection(db, 'artifacts', appId, 'public', 'data', 'salaries')), { ...base, amount: r.salary, type: 'Salary' });
                       if (r.advance > 0) batch.set(doc(collection(db, 'artifacts', appId, 'public', 'data', 'salaries')), { ...base, amount: r.advance, type: 'Advance' });
                       if (r.repayment > 0) batch.set(doc(collection(db, 'artifacts', appId, 'public', 'data', 'salaries')), { ...base, amount: r.repayment, type: 'Repayment' });
@@ -581,19 +457,7 @@
               
               {isEditModalOpen && editItem && (
                 <Modal title="Edit Record" onClose={() => setIsEditModalOpen(false)}>
-                  <form onSubmit={async (e) => {
-                    e.preventDefault();
-                    const fd = new FormData(e.target);
-                    await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'salaries', editItem.id), {
-                      amount: parseFloat(fd.get('amount')), 
-                      type: fd.get('type'), 
-                      year: parseInt(fd.get('year')),
-                      month: fd.get('month'), 
-                      notes: fd.get('notes'), 
-                      timestamp: new Date(fd.get('timestamp')).toISOString()
-                    });
-                    setIsEditModalOpen(false);
-                  }} className="space-y-4 text-slate-900 dark:text-slate-100">
+                  <form onSubmit={async (e) => { e.preventDefault(); const fd = new FormData(e.target); await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'salaries', editItem.id), { amount: parseFloat(fd.get('amount')), type: fd.get('type'), year: parseInt(fd.get('year')), month: fd.get('month'), notes: fd.get('notes'), timestamp: new Date(fd.get('timestamp')).toISOString() }); setIsEditModalOpen(false); }} className="space-y-4 text-slate-900 dark:text-slate-100">
                     <div className="text-[11px] font-black uppercase text-blue-600 border-b pb-2">Record: {String(editItem.staffName)}</div>
                     <div className="flex flex-col gap-0.5"><label className="text-[9px] font-black uppercase text-slate-500">Manual Date</label><input name="timestamp" type="date" className="px-2 py-1 border-2 border-slate-300 dark:border-slate-700 rounded bg-white dark:bg-slate-800 text-slate-900 dark:text-white font-bold" defaultValue={new Date(editItem.timestamp || Date.now()).toISOString().split('T')[0]} /></div>
                     <div className="flex flex-col gap-0.5"><label className="text-[9px] font-black uppercase text-slate-500">Amount (฿)</label><input name="amount" type="number" className="px-2 py-1 border-2 border-slate-300 dark:border-slate-700 rounded bg-white dark:bg-slate-800 text-slate-900 dark:text-white font-black" defaultValue={editItem.amount} required /></div>
@@ -611,34 +475,34 @@
           );
         }
 
-        // --- Standardized Table Components ---
+        // --- Restored UI & Data Components ---
+
+        function Button({ children, onClick, variant = 'primary', size = 'md', className = "", type = "button" }) {
+          return (<button type={type} onClick={onClick} className={`${variant === 'primary' ? 'bg-blue-600 text-white shadow-sm hover:bg-blue-700' : 'border-2 border-slate-400 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800'} ${size === 'sm' ? 'px-2 py-0.5 text-xs' : 'px-3 py-1.5 text-sm'} rounded font-black uppercase tracking-tighter transition-all flex items-center gap-1 active:scale-95 ${className}`}>{children}</button>);
+        }
+
+        function Tab({ active, onClick, icon, label }) {
+          return (<button onClick={onClick} className={`flex items-center gap-1.5 px-3 py-2 text-[10px] font-black uppercase tracking-widest border-b-2 transition-all flex-1 justify-center whitespace-nowrap ${active ? 'border-blue-600 text-blue-600 bg-blue-50/20 dark:bg-blue-900/20 shadow-inner' : 'border-transparent text-slate-400 hover:text-slate-600 dark:hover:text-slate-300'}`}>{icon}<span>{label}</span></button>);
+        }
+
+        function Modal({ title, children, onClose }) {
+          return (<div className="fixed inset-0 z-[100] flex items-center justify-center p-2 bg-slate-950/80 backdrop-blur-sm"><div className="bg-white dark:bg-slate-900 w-full max-w-sm rounded-lg shadow-2xl overflow-hidden border-2 border-slate-400 dark:border-slate-700 animate-in zoom-in-95 duration-150 text-slate-900 dark:text-slate-100"><div className="px-4 py-2 bg-slate-50 dark:bg-slate-800 border-b border-slate-400 dark:border-slate-700 flex justify-between items-center"><h3 className="text-[10px] font-black uppercase tracking-widest text-slate-600 dark:text-slate-400">{title}</h3><button onClick={onClose} className="p-1 hover:bg-slate-200 dark:hover:bg-slate-700 rounded transition-colors text-slate-500"><XCircle size={18}/></button></div><div className="p-4">{children}</div></div></div>);
+        }
+
         function CalendarTable({ data, totals, isLoanTable = false, deptConfigs, collapseExStaff }) {
           const processedRows = useMemo(() => {
             if (!collapseExStaff) return data;
             const activeRows = data.filter(r => r.status !== 'inactive');
             const inactiveRows = data.filter(r => r.status === 'inactive');
             if (inactiveRows.length === 0) return activeRows;
-            
-            const exStaffRow = {
-              name: "Ex-Staff",
-              department: "Other",
-              status: "inactive",
-              monthlyActivity: {},
-              rowTotal: 0,
-              balanceForward: 0
-            };
-            
+            const exStaffRow = { name: "Ex-Staff", department: "Other", status: "inactive", monthlyActivity: {}, rowTotal: 0, balanceForward: 0 };
             MONTHS.forEach(m => {
               const sum = inactiveRows.reduce((acc, row) => acc + (row[m] || 0), 0);
               exStaffRow[m] = sum;
               exStaffRow.monthlyActivity[m] = inactiveRows.some(row => row.monthlyActivity?.[m]);
             });
-            
-            if (isLoanTable) {
-                exStaffRow.balanceForward = inactiveRows.reduce((acc, row) => acc + (row.balanceForward || 0), 0);
-            }
+            if (isLoanTable) exStaffRow.balanceForward = inactiveRows.reduce((acc, row) => acc + (row.balanceForward || 0), 0);
             exStaffRow.rowTotal = inactiveRows.reduce((acc, row) => acc + (row.rowTotal || 0), 0);
-            
             return [...activeRows, exStaffRow];
           }, [data, collapseExStaff, isLoanTable]);
 
@@ -647,10 +511,10 @@
               <table className="w-full text-[13px] border-separate border-spacing-0">
                 <thead className="sticky top-0 z-20">
                   <tr className="font-black uppercase text-slate-600 dark:text-slate-300 text-[10px]">
-                    <th className="p-1 text-left sticky left-0 border-b-2 border-r-2 border-slate-400 dark:border-slate-700 min-w-[100px] z-30" style={{ backgroundColor: '#e8eaed' }}>Staff</th>
-                    {isLoanTable && <th className="p-1 border-b-2 border-r border-slate-300 dark:border-slate-700 min-w-[50px] text-center uppercase" style={{ backgroundColor: 'rgba(0,0,0,0.15)' }}>Prev</th>}
-                    {MONTHS.map(m => <th key={m} className="p-1 border-b-2 border-r border-slate-300 dark:border-slate-700 min-w-[50px] text-center uppercase" style={{ backgroundColor: 'rgba(0,0,0,0.15)' }}>{(m.split('-')[1]).toUpperCase()}</th>)}
-                    <th className="p-1 text-right sticky right-0 border-b-2 border-l-2 border-slate-400 dark:border-slate-700 min-w-[85px] z-30 shadow-[-2px_0_4px_rgba(0,0,0,0.05)]" style={{ backgroundColor: '#e8eaed' }}>Total</th>
+                    <th className="p-1 text-left sticky left-0 border-b-2 border-r-2 border-slate-400 dark:border-slate-700 min-w-[100px] z-30 bg-[#e8eaed] dark:bg-slate-800">Staff</th>
+                    {isLoanTable && <th className="p-1 border-b-2 border-r border-slate-300 dark:border-slate-700 min-w-[50px] text-center uppercase bg-[rgba(0,0,0,0.15)]">Prev</th>}
+                    {MONTHS.map(m => <th key={m} className="p-1 border-b-2 border-r border-slate-300 dark:border-slate-700 min-w-[50px] text-center uppercase bg-[rgba(0,0,0,0.15)]">{(m.split('-')[1]).toUpperCase()}</th>)}
+                    <th className="p-1 text-right sticky right-0 border-b-2 border-l-2 border-slate-400 dark:border-slate-700 min-w-[85px] z-30 shadow-[-2px_0_4px_rgba(0,0,0,0.05)] bg-[#e8eaed] dark:bg-slate-800">Total</th>
                   </tr>
                 </thead>
                 <tbody>{processedRows.map((row, idx) => {
@@ -671,6 +535,75 @@
           );
         }
 
+        function HistoryView({ filteredLog, staffMap, deptConfigs, logSort, setLogSort, setEditItem, setIsEditModalOpen, logFilter, setLogFilter, sortedStaff, deptNames, salaries, logPeriodFilter, setLogPeriodFilter, groupHistoryByBatch, setGroupHistoryByBatch }) {
+          return (
+            <div className="h-full flex flex-col p-1.5 space-y-2 text-slate-900">
+              <div className="flex flex-col gap-2 shrink-0 sticky top-0 z-40 bg-slate-50 dark:bg-slate-950 pb-1 border-b dark:border-slate-800">
+                <div className="grid grid-cols-2 gap-2">
+                  <FilterDropdown label="Who:" value={logFilter} onChange={setLogFilter} staff={sortedStaff} deptNames={deptNames} />
+                  <div className="flex flex-col gap-0.5">
+                    <label className="text-[8px] font-black uppercase text-slate-500 pl-1 tracking-widest uppercase">When:</label>
+                    <select value={logPeriodFilter} onChange={e => setLogPeriodFilter(e.target.value)} className="w-full px-1.5 py-1 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded font-black text-xs outline-none text-slate-900 dark:text-white">
+                      <option value="All">All Periods</option>
+                      {[...new Set(salaries.map(s => `${s.year}-${String(s.month).split('-')[1]}`))].sort().map(p => <option key={p} value={p}>{p}</option>)}
+                    </select>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 pl-1">
+                  <input type="checkbox" id="groupByBatch" checked={groupHistoryByBatch} onChange={e => setGroupHistoryByBatch(e.target.checked)} className="w-4 h-4" />
+                  <label htmlFor="groupByBatch" className="text-[10px] font-black uppercase text-slate-600 dark:text-slate-300 cursor-pointer">Group by Bank Transfer (Batch Mode)</label>
+                </div>
+              </div>
+              <div className="flex-1 overflow-auto bg-white dark:bg-slate-900 rounded border-2 border-slate-400 dark:border-slate-700">
+                <table className="w-full text-left border-collapse text-[11px]">
+                  <thead className="sticky top-0 z-10 text-[9px] uppercase font-black text-slate-600 dark:text-slate-300">
+                    <tr>
+                      <th className="p-1 cursor-pointer bg-[#e8eaed] dark:bg-slate-800" onClick={() => setLogSort(prev => ({key:'timestamp', dir: prev.dir === 'asc' ? 'desc' : 'asc'}))}>Date <ArrowUpDown size={7} className="inline"/></th>
+                      <th className="p-1 cursor-pointer bg-[#e8eaed] dark:bg-slate-800" onClick={() => setLogSort(prev => ({key:'staffName', dir: prev.dir === 'asc' ? 'desc' : 'asc'}))}>Staff <ArrowUpDown size={7} className="inline"/></th>
+                      <th className="p-1 cursor-pointer bg-[#e8eaed] dark:bg-slate-800" onClick={() => setLogSort(prev => ({key:'period', dir: prev.dir === 'asc' ? 'desc' : 'asc'}))}>Period <ArrowUpDown size={7} className="inline"/></th>
+                      <th className="p-1 cursor-pointer bg-[#e8eaed] dark:bg-slate-800" onClick={() => setLogSort(prev => ({key:'type', dir: prev.dir === 'asc' ? 'desc' : 'asc'}))}>Type <ArrowUpDown size={7} className="inline"/></th>
+                      <th className="p-1 text-right cursor-pointer bg-[#e8eaed] dark:bg-slate-800" onClick={() => setLogSort(prev => ({key:'amount', dir: prev.dir === 'asc' ? 'desc' : 'asc'}))}>Amount <ArrowUpDown size={7} className="inline"/></th>
+                      <th className="p-1 bg-[#e8eaed] dark:bg-slate-800">Notes</th>
+                      <th className="p-1 bg-[#e8eaed] dark:bg-slate-800"></th>
+                    </tr>
+                  </thead>
+                  <tbody className="dark:text-slate-200">
+                    {filteredLog.map((s, idx) => {
+                      const member = staffMap[(s.staffName || "").trim()];
+                      const rowBg = getDeptRowColor(member?.department, deptConfigs);
+                      const isNewBatch = groupHistoryByBatch && s.batchId && (idx === 0 || s.batchId !== filteredLog[idx - 1].batchId);
+
+                      return (
+                        <Fragment key={s.id}>
+                          {isNewBatch && (
+                            <tr className="bg-blue-50 dark:bg-blue-900/20 border-y border-blue-200 dark:border-blue-800/50">
+                              <td colSpan={7} className="p-1.5 px-3">
+                                <div className="flex items-center justify-between">
+                                  <div className="flex items-center gap-2 text-blue-700 dark:text-blue-300 font-black text-[10px] uppercase tracking-wider"><Layers size={12}/> Batch Transaction</div>
+                                  <div className="font-black text-blue-600 dark:text-blue-400">Transfer Total: ฿{s.batchTotal?.toLocaleString() || '-'}</div>
+                                </div>
+                              </td>
+                            </tr>
+                          )}
+                          <tr className={`border-b border-slate-200 dark:border-slate-800 transition-colors ${member?.status === 'inactive' ? 'opacity-60 italic' : ''}`}>
+                            <td className="p-1 whitespace-nowrap" style={{ backgroundColor: rowBg }}>{formatDisplayDate(s.timestamp)}</td>
+                            <td className="p-1 font-black truncate max-w-[80px]" style={{ backgroundColor: rowBg }}>{String(s.staffName)}</td>
+                            <td className="p-1 font-bold" style={{ backgroundColor: rowBg }}>{s.period}</td>
+                            <td className="p-1" style={{ backgroundColor: rowBg }}><span className={`px-1.5 py-0.5 rounded text-[8px] font-black uppercase ${String(s.type).toLowerCase()==='advance'?'text-red-600 bg-white/70':String(s.type).toLowerCase()==='repayment'?'text-green-600 bg-white/70':'text-slate-500'}`}>{String(s.type)}</span></td>
+                            <td className={`p-1 text-right font-black ${String(s.type).toLowerCase()==='advance'?'text-red-600':String(s.type).toLowerCase()==='repayment'?'text-green-600':''}`} style={{ backgroundColor: rowBg }}>฿{Number(s.amount).toLocaleString()}</td>
+                            <td className="p-1 italic text-slate-500 dark:text-slate-400 text-[10px] truncate max-w-[100px]" style={{ backgroundColor: rowBg }}>{s.notes || '-'}</td>
+                            <td className="p-1 text-right" style={{ backgroundColor: rowBg }}><div className="flex gap-1 justify-end"><button onClick={() => { setEditItem(s); setIsEditModalOpen(true); }} className="text-slate-400 hover:text-blue-500 p-0.5"><Edit2 size={12}/></button><button onClick={() => deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'salaries', s.id))} className="text-slate-300 hover:text-red-500 p-0.5"><Trash2 size={12}/></button></div></td>
+                          </tr>
+                        </Fragment>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          );
+        }
+
         function DebtLedger({ salaries, staff, filter, sort, deptConfigs, deptNames }) {
           const ledgerData = useMemo(() => staff.map(m => {
               const recs = salaries.filter(s => (s.staffName || "").trim().toLowerCase() === (m.name || "").trim().toLowerCase());
@@ -685,7 +618,6 @@
             }).sort((a, b) => { 
                 if (sort.key === 'balance') return b.balance - a.balance; 
                 if (sort.key === 'advances') return b.advances - a.advances; 
-                // Special Name Sort: active first, then name
                 if (sort.key === 'name') {
                     const scoreA = getSortScore(a, deptNames);
                     const scoreB = getSortScore(b, deptNames);
@@ -693,25 +625,18 @@
                 }
                 return (a.name || "").localeCompare(b.name || ""); 
             }), [salaries, staff, filter, sort, deptNames]);
-
           const [expandedId, setExpandedId] = useState(null);
-
           return (
             <table className="w-full text-left border-separate border-spacing-0">
               <thead className="font-black uppercase border-b-2 border-slate-400 dark:border-slate-700 sticky top-0 z-20 text-[10px] text-slate-600 dark:text-slate-300">
-                <tr>
-                  <th className="p-2 border-r dark:border-slate-700" style={{ backgroundColor: 'rgba(0,0,0,0.15)' }}>Staff Member</th>
-                  <th className="p-2 border-r dark:border-slate-700 text-right text-red-500" style={{ backgroundColor: 'rgba(0,0,0,0.15)' }}>All-Time Advances</th>
-                  <th className="p-2 border-r dark:border-slate-700 text-right text-green-600" style={{ backgroundColor: 'rgba(0,0,0,0.15)' }}>All-Time Repaid</th>
-                  <th className="p-2 text-right" style={{ backgroundColor: 'rgba(0,0,0,0.15)' }}>Owed Balance</th>
-                </tr>
+                <tr><th className="p-2 border-r dark:border-slate-700 bg-[rgba(0,0,0,0.15)]">Staff Member</th><th className="p-2 border-r dark:border-slate-700 text-right text-red-500 bg-[rgba(0,0,0,0.15)]">All-Time Advances</th><th className="p-2 border-r dark:border-slate-700 text-right text-green-600 bg-[rgba(0,0,0,0.15)]">All-Time Repaid</th><th className="p-2 text-right bg-[rgba(0,0,0,0.15)]">Owed Balance</th></tr>
               </thead>
               <tbody>{ledgerData.map(m => {
                   const rowBg = getDeptRowColor(m.department, deptConfigs);
                   return (
                     <Fragment key={m.id}>
                       <tr onClick={() => setExpandedId(expandedId === m.id ? null : m.id)} className={`border-b border-slate-100 dark:border-slate-800 cursor-pointer hover:brightness-95 transition-all leading-none ${m.status === 'inactive' ? 'italic text-slate-400 opacity-60' : 'text-slate-900 dark:text-slate-100'}`}>
-                        <td className="p-2 font-black border-r dark:border-slate-700 flex items-center gap-2 bg-inherit" style={{ backgroundColor: rowBg }}><div className="w-2 h-2 rounded-full !opacity-100 border border-white/50 shadow-sm" style={{ backgroundColor: getDeptDotColor(m.department, deptConfigs) }}></div>{m.name}{expandedId === m.id ? <ChevronUp size={12}/> : <ChevronDown size={12}/>}</td>
+                        <td className="p-2 font-black border-r dark:border-slate-700 flex items-center gap-2" style={{ backgroundColor: rowBg }}><div className="w-2 h-2 rounded-full border border-white/50 shadow-sm" style={{ backgroundColor: getDeptDotColor(m.department, deptConfigs) }}></div>{m.name}{expandedId === m.id ? <ChevronUp size={12}/> : <ChevronDown size={12}/>}</td>
                         <td className="p-2 border-r dark:border-slate-700 text-right font-bold text-red-500/70" style={{ backgroundColor: rowBg }}>฿{m.advances.toLocaleString()}</td>
                         <td className="p-2 border-r dark:border-slate-700 text-right font-bold text-green-600/70" style={{ backgroundColor: rowBg }}>฿{m.repayments.toLocaleString()}</td>
                         <td className={`p-2 text-right font-black border-l-2 border-slate-400 dark:border-slate-700 ${m.balance > 0 ? 'text-red-700' : 'text-slate-300 dark:text-slate-600'}`} style={{ backgroundColor: rowBg }}>฿{m.balance.toLocaleString()}</td>
@@ -723,60 +648,32 @@
           );
         }
 
+        function LedgerReportTable({ salaries, staff, type, year, color, deptConfigs }) {
+          const tableData = useMemo(() => staff.map(m => { const row = { name: m.name, status: m.status, id: m.id, department: m.department }; let staffTotal = 0; MONTHS.forEach(mo => { const amt = salaries.filter(s => (s.staffName || "").trim().toLowerCase() === (m.name || "").trim().toLowerCase() && String(s.type).toLowerCase() === String(type).toLowerCase() && Number(s.year) === year && isSameMonth(s.month, mo)).reduce((a,c) => a + Number(c.amount), 0); row[mo] = amt; staffTotal += amt; }); row.staffTotal = staffTotal; return row; }).filter(r => r.staffTotal > 0), [salaries, staff, type, year]);
+          if (tableData.length === 0) return <div className="p-4 border-2 border-dashed border-slate-300 dark:border-slate-700 rounded text-center text-slate-400 text-[11px] font-medium uppercase">No {type} records for {year}.</div>;
+          return (
+            <div className="overflow-auto bg-white dark:bg-slate-900 border-2 border-slate-400 dark:border-slate-700 rounded shadow-sm"><table className="w-full text-[10px] border-collapse border-separate border-spacing-0"><thead className="bg-slate-50 dark:bg-slate-800 font-black uppercase border-b-2 border-slate-400 dark:border-slate-700 sticky top-0 z-10 text-slate-600 dark:text-slate-300"><tr><th className="p-1 border-r border-slate-400 dark:border-slate-700 sticky left-0 bg-inherit z-10 text-left min-w-[80px] shadow-[1px_0_0_0_rgba(0,0,0,0.05)] bg-[#e8eaed] dark:bg-slate-800">Staff</th>{MONTHS.map(m => <th key={m} className="p-1 border-r border-slate-400 dark:border-slate-700 text-center min-w-[50px] uppercase bg-[rgba(0,0,0,0.15)]">{(m.split('-')[1]).toUpperCase()}</th>)}<th className="p-1 text-right min-w-[70px] sticky right-0 z-10 border-l-2 border-slate-400 shadow-[-1px_0_0_0_rgba(0,0,0,0.05)] bg-[#e8eaed] dark:bg-slate-800">Total</th></tr></thead><tbody>{tableData.map(r => { const rowBg = getDeptRowColor(r.department, deptConfigs); const solidWash = getDeptSolidWash(r.department, deptConfigs); return (<tr key={r.id} className={`border-b border-slate-200 dark:border-slate-800 leading-none transition-colors ${r.status === 'inactive' ? 'italic opacity-60' : ''}`}><td className="p-1 font-black border-r border-slate-400 dark:border-slate-700 sticky left-0 z-10 text-slate-900 dark:text-slate-100 shadow-[1px_0_0_0_rgba(0,0,0,0.1)]" style={{ backgroundColor: solidWash }}>{r.name}</td>{MONTHS.map(mo => <td key={mo} className={`p-1 border-r border-slate-100 dark:border-slate-800 text-center font-bold ${r[mo] > 0 ? color : 'text-slate-100/0 dark:text-slate-800/0'}`} style={{ backgroundColor: rowBg }}>{r[mo] > 0 ? r[mo].toLocaleString() : '-'}</td>)}<td className={`p-1 text-right font-black shadow-[-1px_0_0_0_rgba(0,0,0,0.1)] sticky right-0 z-10 border-l-2 border-slate-400 ${color}`} style={{ backgroundColor: solidWash }}>฿{r.staffTotal.toLocaleString()}</td></tr>)})}</tbody></table></div>
+          );
+        }
+
         function ReportsView({ salaries, staff, staffMap, selectedYear, setSelectedYear, years, deptConfigs }) {
           const [expandedStaff, setExpandedStaff] = useState(null);
           const yearsList = [2024, 2025, 2026];
           const getSummary = (member, year) => { 
             const yearRecs = salaries.filter(s => Number(s.year) === year && (s.staffName || "").trim().toLowerCase() === (member.name || "").trim().toLowerCase()); 
-            return { 
-                sal: yearRecs.filter(s => String(s.type).toLowerCase() === 'salary').reduce((sum, curr) => sum + Number(curr.amount), 0), 
-                adv: yearRecs.filter(s => String(s.type).toLowerCase() === 'advance').reduce((sum, curr) => sum + Number(curr.amount), 0), 
-                rep: yearRecs.filter(s => String(s.type).toLowerCase() === 'repayment').reduce((sum, curr) => sum + Number(curr.amount), 0) 
-            }; 
+            return { sal: yearRecs.filter(s => String(s.type).toLowerCase() === 'salary').reduce((sum, curr) => sum + Number(curr.amount), 0), adv: yearRecs.filter(s => String(s.type).toLowerCase() === 'advance').reduce((sum, curr) => sum + Number(curr.amount), 0), rep: yearRecs.filter(s => String(s.type).toLowerCase() === 'repayment').reduce((sum, curr) => sum + Number(curr.amount), 0) }; 
           };
-          const getTotalEarnings = (member) => { 
-            return salaries.filter(s => (s.staffName || "").trim().toLowerCase() === (member.name || "").trim().toLowerCase())
-              .filter(s => ['salary', 'advance'].includes(String(s.type).toLowerCase())).reduce((sum, c) => sum + Number(c.amount), 0); 
-          };
+          const getTotalEarnings = (member) => { return salaries.filter(s => (s.staffName || "").trim().toLowerCase() === (member.name || "").trim().toLowerCase()).filter(s => ['salary', 'advance'].includes(String(s.type).toLowerCase())).reduce((sum, c) => sum + Number(c.amount), 0); };
           const deptTotals = useMemo(() => deptConfigs.map(deptConfig => { 
             const dept = deptConfig.name; const row = { name: dept }; 
-            MONTHS.forEach(m => { 
-                row[m] = salaries.filter(s => Number(s.year) === selectedYear && isSameMonth(s.month, m) && staffMap[(s.staffName || "").trim()]?.department === dept && ['salary', 'advance'].includes(String(s.type).toLowerCase())).reduce((sum, curr) => sum + Number(curr.amount), 0); 
-            }); 
+            MONTHS.forEach(m => { row[m] = salaries.filter(s => Number(s.year) === selectedYear && isSameMonth(s.month, m) && staffMap[(s.staffName || "").trim()]?.department === dept && ['salary', 'advance'].includes(String(s.type).toLowerCase())).reduce((sum, curr) => sum + Number(curr.amount), 0); }); 
             row.total = MONTHS.reduce((sum, m) => sum + (row[m] || 0), 0); return row; 
           }), [salaries, selectedYear, staffMap, deptConfigs]);
-
           return (
             <div className="h-full flex flex-col p-2 space-y-12 overflow-y-auto no-scrollbar pb-24 text-slate-900 dark:text-slate-100">
               <div className="space-y-1">
-                <div className="sticky top-0 z-20 bg-slate-50 dark:bg-slate-950 flex justify-between items-end px-1 pb-1 border-b border-slate-200 dark:border-slate-800">
-                    <h4 className="text-[10px] font-black uppercase text-slate-500 tracking-tight uppercase">Monthly Dept Spending (฿)</h4>
-                    <select value={selectedYear} onChange={e => setSelectedYear(parseInt(e.target.value))} className="text-[9px] font-black px-1 border-2 border-slate-300 dark:border-slate-700 dark:bg-slate-800 rounded outline-none shadow-sm text-slate-800 dark:text-white">
-                        {years.map(y => <option key={y} value={y}>{y}</option>)}
-                    </select>
-                </div>
-                <div className="overflow-auto bg-white dark:bg-slate-900 border-2 border-slate-400 dark:border-slate-700 rounded shadow-sm">
-                    <table className="w-full border-separate border-spacing-0 text-[12px]">
-                        <thead className="font-black uppercase text-[9px] border-b-2 border-slate-400 dark:border-slate-700 sticky top-0 text-slate-600 dark:text-slate-300">
-                            <tr>
-                              <th className="p-1 border-r border-slate-400 dark:border-slate-700 sticky left-0 z-10 text-left min-w-[100px] shadow-[1px_0_0_0_rgba(0,0,0,0.05)]" style={{ backgroundColor: '#e8eaed' }}>Sector</th>
-                              {MONTHS.map(m => <th key={m} className="p-1 border-r border-slate-400 dark:border-slate-700 text-center min-w-[50px] uppercase" style={{ backgroundColor: 'rgba(0,0,0,0.15)' }}>{(m.split('-')[1]).toUpperCase()}</th>)}
-                              <th className="p-1 text-right min-w-[75px] sticky right-0 z-10 border-l-2 border-slate-400 shadow-[-1px_0_0_0_rgba(0,0,0,0.05)]" style={{ backgroundColor: '#e8eaed' }}>Total</th>
-                            </tr>
-                        </thead>
-                        <tbody>{deptTotals.map(r => {
-                          const rowBg = getDeptRowColor(r.name, deptConfigs);
-                          const solidWash = getDeptSolidWash(r.name, deptConfigs);
-                          return (
-                            <tr key={r.name} className="border-b border-slate-300 dark:border-slate-800 leading-tight transition-colors">
-                              <td className="p-1 font-black border-r border-slate-400 dark:border-slate-700 sticky left-0 z-10 shadow-[1px_0_0_0_rgba(0,0,0,0.1)]" style={{ backgroundColor: solidWash }}>{r.name}</td>
-                              {MONTHS.map(m => <td key={m} className="p-1 border-r border-slate-200 dark:border-slate-800 text-center bg-inherit" style={{ backgroundColor: rowBg }}>{r[m] > 0 ? r[m].toLocaleString() : '-'}</td>)}
-                              <td className="p-1 text-right font-black sticky right-0 z-10 border-l-2 border-slate-400 shadow-[-1px_0_0_0_rgba(0,0,0,0.1)]" style={{ backgroundColor: solidWash }}>฿{r.total.toLocaleString()}</td>
-                            </tr>
-                          )})}
-                        </tbody>
-                    </table>
-                </div>
+                <div className="sticky top-0 z-20 bg-slate-50 dark:bg-slate-950 flex justify-between items-end px-1 pb-1 border-b border-slate-200 dark:border-slate-800"><h4 className="text-[10px] font-black uppercase text-slate-500 tracking-tight uppercase">Monthly Dept Spending (฿)</h4><select value={selectedYear} onChange={e => setSelectedYear(parseInt(e.target.value))} className="text-[9px] font-black px-1 border-2 border-slate-300 dark:border-slate-700 dark:bg-slate-800 rounded outline-none shadow-sm text-slate-800 dark:text-white">{years.map(y => <option key={y} value={y}>{y}</option>)}</select></div>
+                <div className="overflow-auto bg-white dark:bg-slate-900 border-2 border-slate-400 dark:border-slate-700 rounded shadow-sm"><table className="w-full border-separate border-spacing-0 text-[12px]"><thead className="font-black uppercase text-[9px] border-b-2 border-slate-400 dark:border-slate-700 sticky top-0 text-slate-600 dark:text-slate-300"><tr><th className="p-1 border-r border-slate-400 dark:border-slate-700 sticky left-0 z-10 text-left min-w-[100px] shadow-[1px_0_0_0_rgba(0,0,0,0.05)] bg-[#e8eaed] dark:bg-slate-800">Sector</th>{MONTHS.map(m => <th key={m} className="p-1 border-r border-slate-400 dark:border-slate-700 text-center min-w-[50px] uppercase bg-[rgba(0,0,0,0.15)]">{(m.split('-')[1]).toUpperCase()}</th>)}<th className="p-1 text-right min-w-[75px] sticky right-0 z-10 border-l-2 border-slate-400 shadow-[-1px_0_0_0_rgba(0,0,0,0.05)] bg-[#e8eaed] dark:bg-slate-800">Total</th></tr></thead><tbody>{deptTotals.map(r => { const rowBg = getDeptRowColor(r.name, deptConfigs); const solidWash = getDeptSolidWash(r.name, deptConfigs); return (<tr key={r.name} className="border-b border-slate-300 dark:border-slate-800 leading-tight transition-colors"><td className="p-1 font-black border-r border-slate-400 dark:border-slate-700 sticky left-0 z-10 shadow-[1px_0_0_0_rgba(0,0,0,0.1)]" style={{ backgroundColor: solidWash }}>{r.name}</td>{MONTHS.map(m => <td key={m} className="p-1 border-r border-slate-200 dark:border-slate-800 text-center" style={{ backgroundColor: rowBg }}>{r[m] > 0 ? r[m].toLocaleString() : '-'}</td>)}<td className="p-1 text-right font-black sticky right-0 z-10 border-l-2 border-slate-400 shadow-[-1px_0_0_0_rgba(0,0,0,0.1)]" style={{ backgroundColor: solidWash }}>฿{r.total.toLocaleString()}</td></tr>)})}</tbody></table></div>
               </div>
               <div className="space-y-4">
                 <div><h4 className="text-[10px] font-black uppercase text-red-600 flex items-center gap-1 ml-1 tracking-tight">Advances Ledger ({selectedYear})</h4><LedgerReportTable salaries={salaries} staff={staff} type="Advance" year={selectedYear} color="text-red-600" deptConfigs={deptConfigs} /></div>
@@ -786,278 +683,67 @@
                 <h4 className="text-[10px] font-black uppercase text-slate-500 flex items-center gap-1 ml-1 tracking-tight"><TrendingUp size={12}/> STAFF SUMMARIES (MULTI-YEAR)</h4>
                 <div className="border-2 border-slate-400 dark:border-slate-700 rounded overflow-hidden shadow-sm bg-white dark:bg-slate-900">
                   <table className="w-full text-left border-separate border-spacing-0 text-[12px] table-fixed">
-                    <thead className="font-black uppercase text-[9px] border-b-2 border-slate-400 dark:border-slate-700 sticky top-0 z-10 text-slate-600 dark:text-slate-300">
-                      <tr>
-                        <th className="p-1 border-r dark:border-slate-700 sticky left-0 z-10 w-[16%] shadow-[1px_0_0_0_rgba(0,0,0,0.05)]" style={{ backgroundColor: '#e8eaed' }}>Staff Name</th>
-                        {yearsList.map(y => <th key={y} className="p-1 border-r dark:border-slate-700 text-center w-[20%]" style={{ backgroundColor: 'rgba(0,0,0,0.15)' }}>{y} Payouts</th>) }
-                        <th className="p-1 border-l-2 border-slate-400 dark:border-slate-700 text-center w-[24%] sticky right-0 z-10 shadow-[-1px_0_0_0_rgba(0,0,0,0.1)]" style={{ backgroundColor: '#e8eaed' }}>Total Earnings</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {staff.map(m => { 
-                        const results = yearsList.map(y => getSummary(m, y)); const totalEarned = getTotalEarnings(m); 
-                        if (results.every(r => r.sal + r.adv === 0) && m.status === 'inactive') return null; 
-                        const rowBg = getDeptRowColor(m.department, deptConfigs);
-                        const solidWash = getDeptSolidWash(m.department, deptConfigs);
-                        return (
-                          <Fragment key={m.id}>
-                            <tr className={`border-b border-slate-300 dark:border-slate-800 cursor-pointer hover:brightness-95 transition-all leading-none ${m.status === 'inactive' ? 'italic text-slate-400 opacity-60' : 'text-slate-900 dark:text-slate-100'}`} onClick={() => setExpandedStaff(expandedStaff === m.id ? null : m.id)}>
-                              <td className="p-1 font-black border-r dark:border-slate-700 sticky left-0 z-10 truncate shadow-[1px_0_0_0_rgba(0,0,0,0.1)]" style={{ backgroundColor: solidWash }}><div className="flex items-center gap-1 bg-transparent"><div className={`w-1.5 h-1.5 rounded-full shrink-0 border border-white shadow-sm`} style={{ backgroundColor: getDeptDotColor(m.department, deptConfigs) }}></div>{expandedStaff === m.id ? <ChevronUp size={10}/> : <ChevronDown size={10}/>}{m.name}</div></td>
-                              {results.map((r, i) => (<td key={i} className="p-1 border-r dark:border-slate-700 text-right font-bold bg-inherit" style={{ backgroundColor: rowBg }}>{r.sal+r.adv > 0 ? (r.sal + r.adv).toLocaleString() : '-'}</td>))}
-                              <td className="p-1 text-right font-black border-l-2 border-slate-400 dark:border-slate-700 shadow-[-1px_0_0_0_rgba(0,0,0,0.1)] sticky right-0 z-10" style={{ backgroundColor: solidWash }}>฿{totalEarned.toLocaleString()}</td>
-                            </tr>
-                            {expandedStaff === m.id && (
-                              <tr>
-                                <td colSpan={yearsList.length + 2} className="bg-slate-50 dark:bg-slate-800/50 p-0 shadow-inner border-b-2 border-slate-300 dark:border-slate-700">
-                                  <div className="overflow-x-auto">
-                                    <table className="w-full text-[9px] uppercase font-black border-collapse table-fixed text-slate-900 dark:text-slate-200">
-                                      <thead><tr className="bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400 border-b border-slate-400 dark:border-slate-600 text-[8px]"><th className="p-1 text-left border-r border-slate-300 dark:border-slate-600 sticky left-0 bg-inherit w-[16%]">Month</th>{yearsList.map(y => (<th key={y} colSpan={3} className="p-1 text-center border-r border-slate-300 dark:border-slate-600 bg-blue-100/10 text-blue-800 dark:text-blue-300">Year {y}</th>))}<th className="w-[24%]"></th></tr></thead>
-                                      <tbody>
-                                        {MONTHS.map(mo => { 
-                                          const moData = yearsList.map(y => { 
-                                            const recs = salaries.filter(s => (s.staffName || "").trim().toLowerCase() === (m.name || "").trim().toLowerCase() && isSameMonth(s.month, mo) && Number(s.year) === y); 
-                                            return { sal: recs.filter(s => String(s.type).toLowerCase() === 'salary').reduce((sum, c) => sum + Number(c.amount), 0), adv: recs.filter(s => String(s.type).toLowerCase() === 'advance').reduce((sum, c) => sum + Number(c.amount), 0), rep: recs.filter(s => String(s.type).toLowerCase() === 'repayment').reduce((sum, c) => sum + Number(c.amount), 0) }; 
-                                          }); 
-                                          if (moData.every(d => d.sal + d.adv + d.rep === 0)) return null; 
-                                          return (
-                                            <tr key={mo} className="border-b border-slate-200 dark:border-slate-800 leading-none">
-                                              <td className="p-1 font-bold border-r border-slate-300 dark:border-slate-700 sticky left-0 bg-white text-slate-900 dark:text-slate-100 uppercase" style={{ backgroundColor: 'rgba(0,0,0,0.05)' }}>{mo.split('-')[1]}</td>
-                                              {moData.map((d, idx) => (<Fragment key={idx}><td className="p-0.5 text-right border-r border-slate-50 dark:border-slate-800" style={{ backgroundColor: 'rgba(0,0,0,0.05)' }}>{d.sal > 0 ? d.sal.toLocaleString() : '-'}</td><td className="p-0.5 text-right border-r border-slate-50 dark:border-slate-800 text-red-600" style={{ backgroundColor: 'rgba(255,0,0,0.05)' }}>{d.adv > 0 ? d.adv.toLocaleString() : '-'}</td><td className="p-0.5 text-right border-r border-slate-300 dark:border-slate-700 text-green-600" style={{ backgroundColor: 'rgba(0,255,0,0.05)' }}>{d.rep > 0 ? d.rep.toLocaleString() : '-'}</td></Fragment>))}
-                                              <td className="bg-inherit"></td>
-                                            </tr>
-                                          ); 
-                                        })}
-                                      </tbody>
-                                    </table>
-                                  </div>
-                                </td>
-                              </tr>
-                            )}
-                          </Fragment>
-                        ); 
-                      })}
-                    </tbody>
-                  </table>
-                </div>
+                    <thead className="font-black uppercase text-[9px] border-b-2 border-slate-400 dark:border-slate-700 sticky top-0 z-10 text-slate-600 dark:text-slate-300"><tr><th className="p-1 border-r dark:border-slate-700 sticky left-0 z-10 w-[16%] shadow-[1px_0_0_0_rgba(0,0,0,0.05)] bg-[#e8eaed] dark:bg-slate-800">Staff Name</th>{yearsList.map(y => <th key={y} className="p-1 border-r dark:border-slate-700 text-center w-[20%] bg-[rgba(0,0,0,0.15)]">{y} Payouts</th>) }<th className="p-1 border-l-2 border-slate-400 dark:border-slate-700 text-center w-[24%] sticky right-0 z-10 shadow-[-1px_0_0_0_rgba(0,0,0,0.1)] bg-[#e8eaed] dark:bg-slate-800">Total Earnings</th></tr></thead>
+                    <tbody>{staff.map(m => { const results = yearsList.map(y => getSummary(m, y)); const totalEarned = getTotalEarnings(m); if (results.every(r => r.sal + r.adv === 0) && m.status === 'inactive') return null; const rowBg = getDeptRowColor(m.department, deptConfigs); const solidWash = getDeptSolidWash(m.department, deptConfigs); return (<Fragment key={m.id}><tr className={`border-b border-slate-300 dark:border-slate-800 cursor-pointer hover:brightness-95 transition-all leading-none ${m.status === 'inactive' ? 'italic text-slate-400 opacity-60' : 'text-slate-900 dark:text-slate-100'}`} onClick={() => setExpandedStaff(expandedStaff === m.id ? null : m.id)}><td className="p-1 font-black border-r dark:border-slate-700 sticky left-0 z-10 truncate shadow-[1px_0_0_0_rgba(0,0,0,0.1)]" style={{ backgroundColor: solidWash }}><div className="flex items-center gap-1 bg-transparent"><div className={`w-1.5 h-1.5 rounded-full shrink-0 border border-white shadow-sm`} style={{ backgroundColor: getDeptDotColor(m.department, deptConfigs) }}></div>{expandedStaff === m.id ? <ChevronUp size={10}/> : <ChevronDown size={10}/>}{m.name}</div></td>{results.map((r, i) => (<td key={i} className="p-1 border-r dark:border-slate-700 text-right font-bold" style={{ backgroundColor: rowBg }}>{r.sal+r.adv > 0 ? (r.sal + r.adv).toLocaleString() : '-'}</td>))}<td className="p-1 text-right font-black border-l-2 border-slate-400 dark:border-slate-700 shadow-[-1px_0_0_0_rgba(0,0,0,0.1)] sticky right-0 z-10" style={{ backgroundColor: solidWash }}>฿{totalEarned.toLocaleString()}</td></tr>{expandedStaff === m.id && (<tr><td colSpan={yearsList.length + 2} className="bg-slate-50 dark:bg-slate-800/50 p-0 shadow-inner border-b-2 border-slate-300 dark:border-slate-700"><div className="overflow-x-auto"><table className="w-full text-[9px] uppercase font-black border-collapse table-fixed text-slate-900 dark:text-slate-200"><thead><tr className="bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400 border-b border-slate-400 dark:border-slate-600 text-[8px]"><th className="p-1 text-left border-r border-slate-300 dark:border-slate-600 sticky left-0 bg-inherit w-[16%]">Month</th>{yearsList.map(y => (<th key={y} colSpan={3} className="p-1 text-center border-r border-slate-300 dark:border-slate-600 bg-blue-100/10 text-blue-800 dark:text-blue-300">Year {y}</th>))}<th className="w-[24%]"></th></tr></thead><tbody>{MONTHS.map(mo => { const moData = yearsList.map(y => { const recs = salaries.filter(s => (s.staffName || "").trim().toLowerCase() === (m.name || "").trim().toLowerCase() && isSameMonth(s.month, mo) && Number(s.year) === y); return { sal: recs.filter(s => String(s.type).toLowerCase() === 'salary').reduce((sum, c) => sum + Number(c.amount), 0), adv: recs.filter(s => String(s.type).toLowerCase() === 'advance').reduce((sum, c) => sum + Number(c.amount), 0), rep: recs.filter(s => String(s.type).toLowerCase() === 'repayment').reduce((sum, c) => sum + Number(c.amount), 0) }; }); if (moData.every(d => d.sal + d.adv + d.rep === 0)) return null; return (<tr key={mo} className="border-b border-slate-200 dark:border-slate-800 leading-none"><td className="p-1 font-bold border-r border-slate-300 dark:border-slate-700 sticky left-0 uppercase bg-[rgba(0,0,0,0.05)]">{mo.split('-')[1]}</td>{moData.map((d, idx) => (<Fragment key={idx}><td className="p-0.5 text-right border-r border-slate-50 dark:border-slate-800 bg-[rgba(0,0,0,0.05)]">{d.sal > 0 ? d.sal.toLocaleString() : '-'}</td><td className="p-0.5 text-right border-r border-slate-50 dark:border-slate-800 text-red-600 bg-[rgba(255,0,0,0.05)]">{d.adv > 0 ? d.adv.toLocaleString() : '-'}</td><td className="p-0.5 text-right border-r border-slate-300 dark:border-slate-700 text-green-600 bg-[rgba(0,255,0,0.05)]">{d.rep > 0 ? d.rep.toLocaleString() : '-'}</td></Fragment>))}<td className="bg-inherit"></td></tr>); })}</tbody></table></div></td></tr>)}</Fragment>)})}</tbody></table></div>
               </div>
             </div>
           );
         }
 
-        function LedgerReportTable({ salaries, staff, type, year, color, deptConfigs }) {
-          const tableData = useMemo(() => staff.map(m => { 
-            const row = { name: m.name, status: m.status, id: m.id, department: m.department }; let staffTotal = 0; 
-            MONTHS.forEach(mo => { 
-                const amt = salaries.filter(s => (s.staffName || "").trim().toLowerCase() === (m.name || "").trim().toLowerCase() && String(s.type).toLowerCase() === String(type).toLowerCase() && Number(s.year) === year && isSameMonth(s.month, mo)).reduce((a,c) => a + Number(c.amount), 0); 
-                row[mo] = amt; staffTotal += amt; 
-            }); 
-            row.staffTotal = staffTotal; return row; 
-          }).filter(r => r.staffTotal > 0), [salaries, staff, type, year]);
-          if (tableData.length === 0) return <div className="p-4 border-2 border-dashed border-slate-300 dark:border-slate-700 rounded text-center text-slate-400 text-[11px] font-medium uppercase">No {type} records for {year}.</div>;
+        function FilterDropdown({ label, value, onChange, staff, deptNames }) {
           return (
-            <div className="overflow-auto bg-white dark:bg-slate-900 border-2 border-slate-400 dark:border-slate-700 rounded shadow-sm">
-              <table className="w-full text-[10px] border-collapse border-separate border-spacing-0">
-                <thead className="bg-slate-50 dark:bg-slate-800 font-black uppercase border-b-2 border-slate-400 dark:border-slate-700 sticky top-0 z-10 text-slate-600 dark:text-slate-300">
-                  <tr>
-                    <th className="p-1 border-r border-slate-400 dark:border-slate-700 sticky left-0 bg-inherit z-10 text-left min-w-[80px] shadow-[1px_0_0_0_rgba(0,0,0,0.05)]" style={{ backgroundColor: '#e8eaed' }}>Staff</th>
-                    {MONTHS.map(m => <th key={m} className="p-1 border-r border-slate-400 dark:border-slate-700 text-center min-w-[50px] uppercase" style={{ backgroundColor: 'rgba(0,0,0,0.15)' }}>{(m.split('-')[1]).toUpperCase()}</th>)}
-                    <th className="p-1 text-right min-w-[70px] sticky right-0 z-10 border-l-2 border-slate-400 shadow-[-1px_0_0_0_rgba(0,0,0,0.05)]" style={{ backgroundColor: '#e8eaed' }}>Total</th>
-                  </tr>
-                </thead>
-                <tbody>{tableData.map(r => {
-                  const rowBg = getDeptRowColor(r.department, deptConfigs);
-                  const solidWash = getDeptSolidWash(r.department, deptConfigs);
-                  return (
-                    <tr key={r.id} className={`border-b border-slate-200 dark:border-slate-800 leading-none transition-colors ${r.status === 'inactive' ? 'italic opacity-60' : ''}`}>
-                      <td className="p-1 font-black border-r border-slate-400 dark:border-slate-700 sticky left-0 z-10 text-slate-900 dark:text-slate-100 shadow-[1px_0_0_0_rgba(0,0,0,0.1)]" style={{ backgroundColor: solidWash }}>{r.name}</td>
-                      {MONTHS.map(mo => <td key={mo} className={`p-1 border-r border-slate-100 dark:border-slate-800 text-center font-bold bg-inherit ${r[mo] > 0 ? color : 'text-slate-100/0 dark:text-slate-800/0'}`} style={{ backgroundColor: rowBg }}>{r[mo] > 0 ? r[mo].toLocaleString() : '-'}</td>)}
-                      <td className={`p-1 text-right font-black shadow-[-1px_0_0_0_rgba(0,0,0,0.1)] sticky right-0 z-10 border-l-2 border-slate-400 ${color}`} style={{ backgroundColor: solidWash }}>฿{r.staffTotal.toLocaleString()}</td>
-                    </tr>
-                  )})}
-                </tbody>
-              </table>
-            </div>
+            <div className="flex flex-col gap-0.5 text-slate-900 dark:text-white"><label className="text-[8px] font-black uppercase text-slate-500 pl-1 tracking-widest uppercase">{label}</label><select value={value} onChange={e => onChange(e.target.value)} className="w-full px-1.5 py-1 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded font-black text-xs outline-none focus:border-blue-500 shadow-sm text-slate-900 dark:text-white"><option value="All">Show All</option><optgroup label="Departments" className="dark:bg-slate-900">{deptNames.map(d => <option key={String(d)} value={`DEPT:${String(d)}`}>{String(d)}</option>)}</optgroup><optgroup label="Individuals" className="dark:bg-slate-900">{staff.map(s => <option key={s.id} value={`STAFF:${s.name}`}>{s.name}</option>)}</optgroup></select></div>
           );
         }
 
-        // --- UI Components ---
-        function Modal({ title, children, onClose }) { return (<div className="fixed inset-0 z-[100] flex items-center justify-center p-2 bg-slate-950/80 backdrop-blur-sm"><div className="bg-white dark:bg-slate-900 w-full max-w-sm rounded-lg shadow-2xl overflow-hidden border-2 border-slate-400 dark:border-slate-700 animate-in zoom-in-95 duration-150 text-slate-900 dark:text-slate-100"><div className="px-4 py-2 bg-slate-50 dark:bg-slate-800 border-b border-slate-400 dark:border-slate-700 flex justify-between items-center"><h3 className="text-[10px] font-black uppercase tracking-widest text-slate-600 dark:text-slate-400">{title}</h3><button onClick={onClose} className="p-1 hover:bg-slate-200 dark:hover:bg-slate-700 rounded transition-colors text-slate-500"><XCircle size={18}/></button></div><div className="p-4">{children}</div></div></div>); }
-        
         function DeptManagerModal({ configs, onClose, onSave }) {
           const [localConfigs, setLocalConfigs] = useState([...configs]);
           const [newName, setNewName] = useState('');
           const [selectedColor, setSelectedColor] = useState('#3b82f6');
           const [activePickerIdx, setActivePickerIdx] = useState(null);
-
           const handleAdd = () => { if (!newName.trim()) return; const next = [...localConfigs, { name: newName.trim(), color: selectedColor }]; setLocalConfigs(next); onSave(next); setNewName(''); };
           const handleUpdateName = (idx, val) => { const next = [...localConfigs]; next[idx].name = val; setLocalConfigs(next); onSave(next); };
           const handleUpdateColor = (idx, hex) => { const next = [...localConfigs]; next[idx].color = hex; setLocalConfigs(next); onSave(next); setActivePickerIdx(null); };
           const handleRemove = (idx) => { const next = localConfigs.filter((_, i) => i !== idx); setLocalConfigs(next); onSave(next); };
-
           return (
-            <Modal title="Manage Departments" onClose={onClose}>
-              <div className="space-y-4">
-                <div className="bg-slate-50 dark:bg-slate-800 p-3 rounded border-2 border-slate-200 dark:border-slate-700 space-y-3">
-                  <div className="flex flex-col gap-2">
-                    <input type="text" className="w-full border-2 border-slate-300 dark:border-slate-700 dark:bg-slate-900 rounded px-2 py-1 font-bold text-sm outline-none" placeholder="Add New Dept..." value={newName} onChange={e => setNewName(e.target.value)} />
-                    <div className="flex flex-wrap gap-1">
-                      {COLOR_OPTIONS.map(opt => (
-                        <button key={opt.hex} type="button" onClick={() => setSelectedColor(opt.hex)} className={`w-5 h-5 rounded border shadow-sm transition-all ${selectedColor === opt.hex ? 'ring-2 ring-blue-500 ring-offset-1 scale-110' : 'hover:scale-105'}`} style={{ backgroundColor: opt.hex }} />
-                      ))}
-                    </div>
-                    <Button onClick={handleAdd} className="w-full">Create Department</Button>
-                  </div>
-                </div>
-                <div className="space-y-2 max-h-64 overflow-auto border dark:border-slate-700 rounded p-1 bg-slate-50/50">
-                  {localConfigs.map((c, idx) => (
-                    <div key={idx} className="space-y-1">
-                      <div className="flex justify-between items-center bg-white dark:bg-slate-800 p-1.5 rounded border border-slate-200 dark:border-slate-700 gap-2">
-                        <button onClick={() => setActivePickerIdx(activePickerIdx === idx ? null : idx)} className="w-5 h-5 rounded-full shrink-0 border shadow-sm transition-transform hover:scale-110" style={{ backgroundColor: c.color }} />
-                        <input type="text" className="flex-1 bg-transparent font-black text-[11px] uppercase outline-none focus:border-b border-blue-500" value={c.name} onBlur={e => handleUpdateName(idx, e.target.value)} onChange={e => { const n = [...localConfigs]; n[idx].name = e.target.value; setLocalConfigs(n); }} />
-                        <button onClick={() => handleRemove(idx)} className="text-red-400 hover:text-red-600 p-1"><Trash2 size={14}/></button>
-                      </div>
-                      {activePickerIdx === idx && (
-                        <div className="bg-white dark:bg-slate-900 p-2 rounded border-2 border-blue-500 grid grid-cols-6 gap-1 animate-in slide-in-from-top-1 z-10 shadow-lg">
-                          {COLOR_OPTIONS.map(opt => (
-                            <button key={opt.hex} type="button" onClick={() => handleUpdateColor(idx, opt.hex)} className="w-full aspect-square rounded border shadow-sm hover:scale-110 transition-transform" style={{ backgroundColor: opt.hex }} />
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </Modal>
+            <Modal title="Manage Departments" onClose={onClose}><div className="space-y-4"><div className="bg-slate-50 dark:bg-slate-800 p-3 rounded border-2 border-slate-200 dark:border-slate-700 space-y-3"><div className="flex flex-col gap-2"><input type="text" className="w-full border-2 border-slate-300 dark:border-slate-700 dark:bg-slate-900 rounded px-2 py-1 font-bold text-sm outline-none" placeholder="Add New Dept..." value={newName} onChange={e => setNewName(e.target.value)} /><div className="flex flex-wrap gap-1">{COLOR_OPTIONS.map(opt => (<button key={opt.hex} type="button" onClick={() => setSelectedColor(opt.hex)} className={`w-5 h-5 rounded border shadow-sm transition-all ${selectedColor === opt.hex ? 'ring-2 ring-blue-500 ring-offset-1 scale-110' : 'hover:scale-105'}`} style={{ backgroundColor: opt.hex }} />))}</div><Button onClick={handleAdd} className="w-full">Create Department</Button></div></div><div className="space-y-2 max-h-64 overflow-auto border dark:border-slate-700 rounded p-1 bg-slate-50/50">{localConfigs.map((c, idx) => (<div key={idx} className="space-y-1"><div className="flex justify-between items-center bg-white dark:bg-slate-800 p-1.5 rounded border border-slate-200 dark:border-slate-700 gap-2"><button onClick={() => setActivePickerIdx(activePickerIdx === idx ? null : idx)} className="w-5 h-5 rounded-full shrink-0 border shadow-sm transition-transform hover:scale-110" style={{ backgroundColor: c.color }} /><input type="text" className="flex-1 bg-transparent font-black text-[11px] uppercase outline-none focus:border-b border-blue-500" value={c.name} onBlur={e => handleUpdateName(idx, e.target.value)} onChange={e => { const n = [...localConfigs]; n[idx].name = e.target.value; setLocalConfigs(n); }} /><button onClick={handleRemove(idx)} className="text-red-400 hover:text-red-600 p-1"><Trash2 size={14}/></button></div>{activePickerIdx === idx && (<div className="bg-white dark:bg-slate-900 p-2 rounded border-2 border-blue-500 grid grid-cols-6 gap-1 animate-in slide-in-from-top-1 z-10 shadow-lg">{COLOR_OPTIONS.map(opt => (<button key={opt.hex} type="button" onClick={() => handleUpdateColor(idx, opt.hex)} className="w-full aspect-square rounded border shadow-sm hover:scale-110 transition-transform" style={{ backgroundColor: opt.hex }} />))}</div>)}</div>))}</div></div></Modal>
           );
         }
 
-        function Tab({ active, onClick, icon, label }) { return (<button onClick={onClick} className={`flex items-center gap-1.5 px-3 py-2 text-[10px] font-black uppercase tracking-widest border-b-2 transition-all flex-1 justify-center whitespace-nowrap ${active ? 'border-blue-600 text-blue-600 bg-blue-50/20 dark:bg-blue-900/20 shadow-inner' : 'border-transparent text-slate-400 hover:text-slate-600 dark:hover:text-slate-300'}`}>{icon}<span>{label}</span></button>); }
-        function Button({ children, onClick, variant = 'primary', size = 'md', className = "", type = "button" }) { return (<button type={type} onClick={onClick} className={`${variant === 'primary' ? 'bg-blue-600 text-white shadow-sm hover:bg-blue-700' : 'border-2 border-slate-400 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800'} ${size === 'sm' ? 'px-2 py-0.5 text-xs' : 'px-3 py-1.5 text-sm'} rounded font-black uppercase tracking-tighter transition-all flex items-center gap-1 active:scale-95 ${className}`}>{children}</button>); }
-        function FilterDropdown({ label, value, onChange, staff, deptNames }) { return (<div className="flex flex-col gap-0.5 text-slate-900 dark:text-white"><label className="text-[8px] font-black uppercase text-slate-500 pl-1 tracking-widest uppercase">{label}</label><select value={value} onChange={e => onChange(e.target.value)} className="w-full px-1.5 py-1 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded font-black text-xs outline-none focus:border-blue-500 shadow-sm text-slate-900 dark:text-white"><option value="All">Show All</option><optgroup label="Departments" className="dark:bg-slate-900">{deptNames.map(d => <option key={String(d)} value={`DEPT:${String(d)}`}>{String(d)}</option>)}</optgroup><optgroup label="Individuals" className="dark:bg-slate-900">{staff.map(s => <option key={s.id} value={`STAFF:${s.name}`}>{s.name}</option>)}</optgroup></select></div>); }
-        
         function BulkPaymentModal({ staff, deptConfigs, salaries, onClose, onSave }) {
           const [yr, setYr] = useState(new Date().getFullYear());
           const [mo, setMo] = useState(MONTHS[new Date().getMonth()]);
           const [dt, setDt] = useState(new Date().toISOString().split('T')[0]);
-          
-          const debtMap = useMemo(() => {
-              const map = {};
-              salaries.forEach(s => {
-                  const name = (s.staffName || "").trim().toLowerCase();
-                  if (!name) return;
-                  if (!map[name]) map[name] = 0;
-                  const amt = Number(s.amount);
-                  const type = String(s.type).toLowerCase();
-                  if (type === 'advance') map[name] += amt;
-                  if (type === 'repayment') map[name] -= amt;
-              });
-              return map;
-          }, [salaries]);
-
-          const [rows, setRows] = useState(staff.map(s => ({ 
-              id: s.id, 
-              name: s.name, 
-              salary: s.baseSalary||0, 
-              advance: 0, 
-              repayment: 0, 
-              notes: "", 
-              included: true, 
-              department: s.department 
-          })));
-
-          const update = (id, f, v) => {
-            setRows(prevRows => prevRows.map(r => {
-              if (r.id !== id) return r;
-              let nextRow = { ...r, [f]: v };
-              // Convenience: Auto-deduct repayment from base salary
-              if (f === 'repayment') {
-                const member = staff.find(s => s.id === id);
-                const base = member?.baseSalary || 0;
-                nextRow.salary = Math.max(0, base - v);
-              }
-              return nextRow;
-            }));
-          };
-
-          const totalPayout = useMemo(() => {
-            return rows.reduce((sum, r) => {
-              if (!r.included) return sum;
-              return sum + (Number(r.salary) + Number(r.advance) - Number(r.repayment));
-            }, 0);
-          }, [rows]);
-
+          const debtMap = useMemo(() => { const map = {}; salaries.forEach(s => { const name = (s.staffName || "").trim().toLowerCase(); if (!name) return; if (!map[name]) map[name] = 0; const amt = Number(s.amount); const type = String(s.type).toLowerCase(); if (type === 'advance') map[name] += amt; if (type === 'repayment') map[name] -= amt; }); return map; }, [salaries]);
+          const [rows, setRows] = useState(staff.map(s => ({ id: s.id, name: s.name, salary: s.baseSalary||0, advance: 0, repayment: 0, notes: "", included: true, department: s.department })));
+          const update = (id, f, v) => { setRows(prevRows => prevRows.map(r => { if (r.id !== id) return r; let nextRow = { ...r, [f]: v }; if (f === 'repayment') { const member = staff.find(s => s.id === id); const base = member?.baseSalary || 0; nextRow.salary = Math.max(0, base - v); } return nextRow; })); };
+          const totalPayout = useMemo(() => { return rows.reduce((sum, r) => { if (!r.included) return sum; return sum + (Number(r.salary) + Number(r.advance)); }, 0); }, [rows]);
           return (
-            <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/40">
+            <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/30">
                 <div className="bg-white dark:bg-slate-900 w-full max-w-4xl max-h-[90vh] h-auto rounded-xl shadow-2xl overflow-hidden border-2 border-slate-400 dark:border-slate-700 flex flex-col animate-in zoom-in-95 duration-150">
                     <div className="px-4 py-2 bg-slate-50 dark:bg-slate-800 border-b-2 border-slate-400 dark:border-slate-700 flex justify-between items-center shrink-0">
-                        <div className="flex items-center gap-4">
-                            <h3 className="text-[16px] font-black uppercase tracking-widest text-blue-700 dark:text-blue-400">Payroll Entry</h3>
-                            <div className="flex gap-2">
-                                <input type="date" value={dt} onChange={e => setDt(e.target.value)} className="text-[13px] font-black px-2 py-0.5 border-2 border-slate-400 dark:border-slate-700 dark:bg-slate-900 rounded outline-none" />
-                                <select value={yr} onChange={e => setYr(parseInt(e.target.value))} className="text-[13px] font-black px-2 py-0.5 border-2 border-slate-300 dark:border-slate-700 dark:bg-slate-900 rounded bg-white dark:bg-slate-800 outline-none">{[2024, 2025, 2026, 2027].map(y => <option key={y} value={y}>{y}</option>)}</select>
-                                <select value={mo} onChange={e => setMo(e.target.value)} className="text-[13px] font-black px-2 py-0.5 border-2 border-slate-300 dark:border-slate-700 dark:bg-slate-900 rounded bg-white dark:bg-slate-800 outline-none">{MONTHS.map(m => <option key={m} value={m}>{m}</option>)}</select>
-                            </div>
-                        </div>
+                        <div className="flex items-center gap-4"><h3 className="text-[16px] font-black uppercase tracking-widest text-blue-700 dark:text-blue-400">Payroll Entry</h3><div className="flex gap-2"><input type="date" value={dt} onChange={e => setDt(e.target.value)} className="text-[13px] font-black px-2 py-0.5 border-2 border-slate-400 dark:border-slate-700 dark:bg-slate-900 rounded outline-none" /><select value={yr} onChange={e => setYr(parseInt(e.target.value))} className="text-[13px] font-black px-2 py-0.5 border-2 border-slate-300 dark:border-slate-700 dark:bg-slate-900 rounded bg-white dark:bg-slate-800 outline-none">{[2024, 2025, 2026, 2027].map(y => <option key={y} value={y}>{y}</option>)}</select><select value={mo} onChange={e => setMo(e.target.value)} className="text-[13px] font-black px-2 py-0.5 border-2 border-slate-300 dark:border-slate-700 dark:bg-slate-900 rounded bg-white dark:bg-slate-800 outline-none">{MONTHS.map(m => <option key={m} value={m}>{m}</option>)}</select></div></div>
                         <button onClick={onClose} className="p-1 hover:bg-slate-200 rounded text-slate-500 transition-colors"><XCircle size={24}/></button>
                     </div>
                     <div className="flex-1 overflow-auto">
                         <table className="w-full text-left border-collapse table-auto">
                             <thead className="bg-white dark:bg-slate-900 z-10 border-b-2 border-slate-500 font-black text-slate-500 uppercase text-[12px] sticky top-0">
-                                <tr>
-                                    <th className="p-2 w-10 text-center bg-slate-50 dark:bg-slate-800"><input type="checkbox" checked={rows.every(r=>r.included)} onChange={e => setRows(rows.map(r=>({...r,included:e.target.checked})))} className="w-5 h-4 ml-1"/></th>
-                                    <th className="p-2 min-w-[140px] max-w-[140px] text-[13px] font-black uppercase tracking-tighter bg-slate-50 dark:bg-slate-800 text-left">Employee</th>
-                                    <th className="p-2 w-24 text-right font-black uppercase tracking-tighter bg-slate-50/50 dark:bg-slate-800/50 text-red-500">Owed</th>
-                                    <th className="p-2 w-20 text-center font-black uppercase tracking-tighter bg-slate-50 dark:bg-slate-800">Sal</th>
-                                    <th className="p-2 w-20 text-center font-black uppercase tracking-tighter bg-slate-50 dark:bg-slate-800">Adv</th>
-                                    <th className="p-2 w-20 text-center font-black uppercase tracking-tighter bg-slate-50 dark:bg-slate-800">Rep</th>
-                                    <th className="p-2 text-[12px] font-black uppercase tracking-tighter bg-slate-50 dark:bg-slate-800 w-full text-left">Notes</th>
-                                </tr>
+                                <tr><th className="p-2 w-10 text-center bg-slate-50 dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700"><input type="checkbox" checked={rows.every(r=>r.included)} onChange={e => setRows(rows.map(r=>({...r,included:e.target.checked})))} className="w-5 h-4 ml-1"/></th><th className="p-2 min-w-[140px] max-w-[140px] text-[13px] font-black uppercase tracking-tighter bg-slate-50 dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 text-left">Employee</th><th className="p-2 w-24 text-right font-black uppercase tracking-tighter bg-slate-50/50 dark:bg-slate-800/50 text-red-500 border-b border-slate-200 dark:border-slate-700">Owed</th><th className="p-2 w-20 text-center font-black uppercase tracking-tighter bg-slate-50 dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700">Sal</th><th className="p-2 w-20 text-center font-black uppercase tracking-tighter bg-slate-50 dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700">Adv</th><th className="p-2 w-20 text-center font-black uppercase tracking-tighter bg-slate-50 dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700">Rep</th><th className="p-2 text-[12px] font-black uppercase tracking-tighter bg-slate-50 dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 w-full text-left">Notes</th></tr>
                             </thead>
                             <tbody>
                                 {rows.map(r => {
                                     const rowBg = r.included ? getDeptRowColor(r.department, deptConfigs) : 'transparent';
                                     const currentOwed = debtMap[(r.name || "").toLowerCase().trim()] || 0;
-                                    
-                                    const alreadyPaid = salaries.some(s => 
-                                        (s.staffName || "").trim().toLowerCase() === (r.name || "").toLowerCase().trim() && 
-                                        Number(s.year) === Number(yr) && 
-                                        isSameMonth(s.month, mo) && 
-                                        String(s.type).toLowerCase() === 'salary'
-                                    );
-
+                                    const alreadyPaid = salaries.some(s => (s.staffName || "").trim().toLowerCase() === (r.name || "").toLowerCase().trim() && Number(s.year) === Number(yr) && isSameMonth(s.month, mo) && String(s.type).toLowerCase() === 'salary');
                                     return (
-                                        <tr key={r.id} className={`${r.included?'':'opacity-30'} border-b border-slate-100 dark:border-slate-800 transition-colors leading-none`}>
-                                            <td className="p-1 text-center align-middle" style={{ backgroundColor: rowBg }}><input type="checkbox" checked={r.included} onChange={e => update(r.id,'included',e.target.checked)} className="w-5 h-4 ml-1 cursor-pointer"/></td>
-                                            <td className="p-1 min-w-[140px] max-w-[140px] font-black text-[15px] text-slate-900 dark:text-slate-100 align-middle" style={{ backgroundColor: rowBg }}>
-                                                <div className="flex items-center gap-1.5 overflow-visible">
-                                                    {alreadyPaid && (
-                                                        <div className="group relative shrink-0">
-                                                            <AlertTriangle size={15} className="text-red-600 animate-pulse cursor-help" />
-                                                            <div className="absolute left-0 bottom-full mb-1 hidden group-hover:block bg-red-600 text-white text-[11px] px-2 py-1 rounded shadow-lg whitespace-nowrap z-50 font-black font-sans uppercase">Paid {mo}</div>
-                                                        </div>
-                                                    )}
-                                                    <span className="truncate">{String(r.name)}</span>
-                                                </div>
-                                            </td>
-                                            <td className="p-1 text-right font-black text-[13px] text-red-500/80 align-middle whitespace-nowrap pr-3" style={{ backgroundColor: rowBg }}>฿{currentOwed.toLocaleString()}</td>
-                                            <td className="p-1 text-center align-middle" style={{ backgroundColor: rowBg }}><input type="number" className="w-16 border border-slate-300 dark:border-slate-700 dark:bg-slate-900 rounded font-black text-[15px] text-center outline-none focus:border-blue-500" value={r.salary} onChange={e => update(r.id,'salary',parseFloat(e.target.value)||0)} /></td>
-                                            <td className="p-1 text-center align-middle" style={{ backgroundColor: rowBg }}><input type="number" className="w-16 border border-slate-300 dark:border-slate-700 dark:bg-slate-900 rounded font-black text-[15px] text-center text-red-600 outline-none focus:border-blue-500" value={r.advance} onChange={e => update(r.id,'advance',parseFloat(e.target.value)||0)} /></td>
-                                            <td className="p-1 text-center align-middle" style={{ backgroundColor: rowBg }}><input type="number" className="w-16 border border-slate-300 dark:border-slate-700 dark:bg-slate-900 rounded font-black text-[15px] text-center text-green-600 outline-none focus:border-blue-500" value={r.repayment} onChange={e => update(r.id,'repayment',parseFloat(e.target.value)||0)} /></td>
-                                            <td className="p-1 align-middle w-full" style={{ backgroundColor: rowBg }}><input type="text" className="w-full border border-slate-200 dark:border-slate-800 dark:bg-slate-800 px-2 py-1.5 rounded text-[14px] font-medium outline-none" placeholder="..." value={r.notes} onChange={e => update(r.id,'notes',e.target.value)} /></td>
-                                        </tr>
+                                        <tr key={r.id} className={`${r.included?'':'opacity-30'} border-b border-slate-100 dark:border-slate-800 transition-colors leading-none`}><td className="p-1 text-center align-middle" style={{ backgroundColor: rowBg }}><input type="checkbox" checked={r.included} onChange={e => update(r.id,'included',e.target.checked)} className="w-5 h-4 ml-1 cursor-pointer"/></td><td className="p-1 min-w-[140px] max-w-[140px] font-black text-[15px] text-slate-900 dark:text-slate-100 align-middle" style={{ backgroundColor: rowBg }}><div className="flex items-center gap-1.5 overflow-visible">{alreadyPaid && (<div className="group relative shrink-0"><AlertTriangle size={15} className="text-red-600 animate-pulse cursor-help" /><div className="absolute left-0 bottom-full mb-1 hidden group-hover:block bg-red-600 text-white text-[11px] px-2 py-1 rounded shadow-lg whitespace-nowrap z-50 font-black uppercase font-sans">Paid {mo}</div></div>)}<span className="truncate">{String(r.name)}</span></div></td><td className="p-1 text-right font-black text-[13px] text-red-500/80 align-middle whitespace-nowrap pr-3" style={{ backgroundColor: rowBg }}>฿{currentOwed.toLocaleString()}</td><td className="p-1 text-center align-middle" style={{ backgroundColor: rowBg }}><input type="number" className="w-16 border border-slate-300 dark:border-slate-700 dark:bg-slate-900 rounded font-black text-[15px] text-center outline-none focus:border-blue-500" value={r.salary} onChange={e => update(r.id,'salary',parseFloat(e.target.value)||0)} /></td><td className="p-1 text-center align-middle" style={{ backgroundColor: rowBg }}><input type="number" className="w-16 border border-slate-300 dark:border-slate-700 dark:bg-slate-900 rounded font-black text-[15px] text-center text-red-600 outline-none focus:border-blue-500" value={r.advance} onChange={e => update(r.id,'advance',parseFloat(e.target.value)||0)} /></td><td className="p-1 text-center align-middle" style={{ backgroundColor: rowBg }}><input type="number" className="w-16 border border-slate-300 dark:border-slate-700 dark:bg-slate-900 rounded font-black text-[15px] text-center text-green-600 outline-none focus:border-blue-500" value={r.repayment} onChange={e => update(r.id,'repayment',parseFloat(e.target.value)||0)} /></td><td className="p-1 align-middle w-full" style={{ backgroundColor: rowBg }}><input type="text" className="w-full border border-slate-200 dark:border-slate-800 dark:bg-slate-800 px-2 py-1.5 rounded text-[14px] font-medium outline-none" placeholder="..." value={r.notes} onChange={e => update(r.id,'notes',e.target.value)} /></td></tr>
                                     )})}
                             </tbody>
                         </table>
                     </div>
                     <div className="p-3 bg-slate-50 dark:bg-slate-800 border-t-2 border-slate-400 dark:border-slate-700 flex justify-between items-center shrink-0 shadow-inner">
-                        <div className="flex flex-col">
-                          <span className="text-[10px] font-black uppercase text-slate-400 tracking-tighter">Total Net Payout</span>
-                          <span className="text-[17px] font-black text-blue-600">฿{totalPayout.toLocaleString()}</span>
-                        </div>
-                        <div className="flex gap-3">
-                          <Button variant="outline" onClick={onClose} className="px-6 py-2 uppercase font-black tracking-tight text-[13px]">Cancel</Button>
-                          <Button onClick={() => onSave(rows, yr, mo, dt)} className="px-8 py-2 text-[13px] font-black uppercase tracking-widest bg-blue-700">Submit Payroll</Button>
-                        </div>
+                        <div className="flex flex-col"><span className="text-[10px] font-black uppercase text-slate-400 tracking-tighter">Total Net Payout</span><span className="text-[17px] font-black text-blue-600">฿{totalPayout.toLocaleString()}</span></div>
+                        <div className="flex gap-3"><Button variant="outline" onClick={onClose} className="px-6 py-2 uppercase font-black tracking-tight text-[13px]">Cancel</Button><Button onClick={() => onSave(rows, yr, mo, dt, totalPayout)} className="px-8 py-2 text-[13px] font-black uppercase tracking-widest bg-blue-700">Submit Payroll</Button></div>
                     </div>
                 </div>
             </div>
@@ -1067,6 +753,5 @@
         const root = ReactDOM.createRoot(document.getElementById('root'));
         root.render(<App />);
     </script>
-        <script src="https://loren-6q.github.io/WETNav/nav.js"></script>
 </body>
 </html>
