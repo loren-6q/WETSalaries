@@ -290,18 +290,12 @@
             if (logPeriodFilter !== "All") result = result.filter(s => s.period === logPeriodFilter);
             
             result.sort((a, b) => {
-              if (groupHistoryByBatch) {
-                const batchA = a.batchId || 'z1';
-                const batchB = b.batchId || 'z2';
-                if (batchA !== batchB) {
-                  const timeDiff = (b.timestamp || "").localeCompare(a.timestamp || "");
-                  if (timeDiff !== 0) return timeDiff;
-                  return batchB.localeCompare(batchA);
-                }
+              if (groupHistoryByBatch && (a.batchId || 'z') !== (b.batchId || 'z')) {
+                return (b.timestamp || "").localeCompare(a.timestamp || "");
               }
               let valA = a[logSort.key];
               let valB = b[logSort.key];
-              if (logSort.key === 'amount') { valA = Number(valA) || 0; valB = Number(valB) || 0; }
+              if (logSort.key === 'amount') { valA = Number(valA); valB = Number(valB); }
               if (logSort.key === 'staffName') {
                   const memberA = staffMap[(a.staffName || "").trim()];
                   const memberB = staffMap[(b.staffName || "").trim()];
@@ -310,7 +304,7 @@
               }
               if (valA < valB) return logSort.dir === 'asc' ? -1 : 1;
               if (valA > valB) return logSort.dir === 'asc' ? 1 : -1;
-              return (a.id || "").localeCompare(b.id || "");
+              return 0;
             });
             return result;
           }, [salaries, logFilter, logPeriodFilter, logSort, staffMap, deptNames, groupHistoryByBatch]);
@@ -506,6 +500,12 @@
           return (<div className="fixed inset-0 z-[100] flex items-center justify-center p-2 bg-slate-950/80 backdrop-blur-sm"><div className="bg-white dark:bg-slate-900 w-full max-w-sm rounded-lg shadow-2xl overflow-hidden border-2 border-slate-400 dark:border-slate-700 animate-in zoom-in-95 duration-150 text-slate-900 dark:text-slate-100"><div className="px-4 py-2 bg-slate-50 dark:bg-slate-800 border-b border-slate-400 dark:border-slate-700 flex justify-between items-center"><h3 className="text-[10px] font-black uppercase tracking-widest text-slate-600 dark:text-slate-400">{title}</h3><button onClick={onClose} className="p-1 hover:bg-slate-200 dark:hover:bg-slate-700 rounded transition-colors text-slate-500"><XCircle size={18}/></button></div><div className="p-4">{children}</div></div></div>);
         }
 
+        function FilterDropdown({ label, value, onChange, staff, deptNames }) {
+          return (
+            <div className="flex flex-col gap-0.5 text-slate-900 dark:text-white"><label className="text-[8px] font-black uppercase text-slate-500 pl-1 tracking-widest uppercase">{label}</label><select value={value} onChange={e => onChange(e.target.value)} className="w-full px-1.5 py-1 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded font-black text-xs outline-none focus:border-blue-500 shadow-sm text-slate-900 dark:text-white"><option value="All">Show All</option><optgroup label="Departments" className="dark:bg-slate-900">{deptNames.map(d => <option key={String(d)} value={`DEPT:${String(d)}`}>{String(d)}</option>)}</optgroup><optgroup label="Individuals" className="dark:bg-slate-900">{staff.map(s => <option key={s.id} value={`STAFF:${s.name}`}>{s.name}</option>)}</optgroup></select></div>
+          );
+        }
+
         function CalendarTable({ data, totals, isLoanTable = false, deptConfigs, collapseExStaff }) {
           const processedRows = useMemo(() => {
             if (!collapseExStaff) return data;
@@ -573,18 +573,18 @@
 
           return (
             <div className="h-full flex flex-col p-1.5 space-y-2 text-slate-900">
-              <div className="flex flex-wrap items-end gap-3 shrink-0 sticky top-0 z-40 bg-slate-50 dark:bg-slate-950 pb-2 border-b dark:border-slate-800">
-                <div className="w-32">
+              <div className="flex flex-col gap-2 shrink-0 sticky top-0 z-40 bg-slate-50 dark:bg-slate-950 pb-1 border-b dark:border-slate-800">
+                <div className="grid grid-cols-2 gap-2">
                   <FilterDropdown label="Who:" value={logFilter} onChange={setLogFilter} staff={sortedStaff} deptNames={deptNames} />
+                  <div className="flex flex-col gap-0.5">
+                    <label className="text-[8px] font-black uppercase text-slate-500 pl-1 tracking-widest uppercase">When:</label>
+                    <select value={logPeriodFilter} onChange={e => setLogPeriodFilter(e.target.value)} className="w-full px-1.5 py-1 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded font-black text-xs outline-none text-slate-900 dark:text-white">
+                      <option value="All">All Periods</option>
+                      {[...new Set(salaries.map(s => `${s.year}-${String(s.month).split('-')[1]}`))].sort().map(p => <option key={p} value={p}>{p}</option>)}
+                    </select>
+                  </div>
                 </div>
-                <div className="w-28 flex flex-col gap-0.5">
-                  <label className="text-[8px] font-black uppercase text-slate-500 pl-1 tracking-widest uppercase">When:</label>
-                  <select value={logPeriodFilter} onChange={e => setLogPeriodFilter(e.target.value)} className="w-full px-1.5 py-1 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded font-black text-xs outline-none text-slate-900 dark:text-white">
-                    <option value="All">All Periods</option>
-                    {[...new Set(salaries.map(s => `${s.year}-${String(s.month).split('-')[1]}`))].sort().map(p => <option key={p} value={p}>{p}</option>)}
-                  </select>
-                </div>
-                <div className="flex items-center gap-2 px-2 py-1 mb-0.5 bg-blue-600/10 rounded border border-blue-600/20">
+                <div className="flex items-center gap-2 pl-1 bg-blue-600/10 p-1.5 rounded border border-blue-600/20">
                   <input type="checkbox" id="groupByBatchShort" checked={groupHistoryByBatch} onChange={e => setGroupHistoryByBatch(e.target.checked)} className="w-4 h-4 cursor-pointer" />
                   <label htmlFor="groupByBatchShort" className="text-[10px] font-black uppercase text-blue-800 dark:text-blue-300 cursor-pointer">BATCH MODE</label>
                 </div>
@@ -683,20 +683,6 @@
           );
         }
 
-        function LedgerReportTable({ salaries, staff, type, year, color, deptConfigs }) {
-          const tableData = useMemo(() => staff.map(m => { const row = { name: m.name, status: m.status, id: m.id, department: m.department }; let staffTotal = 0; MONTHS.forEach(mo => { const amt = salaries.filter(s => (s.staffName || "").trim().toLowerCase() === (m.name || "").trim().toLowerCase() && String(s.type).toLowerCase() === String(type).toLowerCase() && Number(s.year) === year && isSameMonth(s.month, mo)).reduce((a,c) => a + Number(c.amount), 0); row[mo] = amt; staffTotal += amt; }); row.staffTotal = staffTotal; return row; }).filter(r => r.staffTotal > 0), [salaries, staff, type, year]);
-          if (tableData.length === 0) return <div className="p-4 border-2 border-dashed border-slate-300 dark:border-slate-700 rounded text-center text-slate-400 text-[11px] font-medium uppercase">No {type} records for {year}.</div>;
-          return (
-            <div className="overflow-auto bg-white dark:bg-slate-900 border-2 border-slate-400 dark:border-slate-700 rounded shadow-sm"><table className="w-full text-[10px] border-collapse border-separate border-spacing-0"><thead className="bg-slate-50 dark:bg-slate-800 font-black uppercase border-b-2 border-slate-400 dark:border-slate-700 sticky top-0 z-10 text-slate-600 dark:text-slate-300"><tr><th className="p-1 border-r border-slate-400 dark:border-slate-700 sticky left-0 bg-inherit z-10 text-left min-w-[80px] shadow-[1px_0_0_0_rgba(0,0,0,0.05)] bg-[#e8eaed] dark:bg-slate-800">Staff</th>{MONTHS.map(m => <th key={m} className="p-1 border-r border-slate-400 dark:border-slate-700 text-center min-w-[50px] uppercase bg-[rgba(0,0,0,0.15)]">{(m.split('-')[1]).toUpperCase()}</th>)}<th className="p-1 text-right min-w-[70px] sticky right-0 z-10 border-l-2 border-slate-400 shadow-[-1px_0_0_0_rgba(0,0,0,0.05)] bg-[#e8eaed] dark:bg-slate-800">Total</th></tr></thead><tbody>{tableData.map(r => { const rowBg = getDeptRowColor(r.department, deptConfigs); const solidWash = getDeptSolidWash(r.department, deptConfigs); return (<tr key={r.id} className={`border-b border-slate-200 dark:border-slate-800 leading-none transition-colors ${r.status === 'inactive' ? 'italic opacity-60' : ''}`}><td className="p-1 font-black border-r border-slate-400 dark:border-slate-700 sticky left-0 z-10 text-slate-900 dark:text-slate-100 shadow-[1px_0_0_0_rgba(0,0,0,0.1)]" style={{ backgroundColor: solidWash }}>{r.name}</td>{MONTHS.map(mo => <td key={mo} className={`p-1 border-r border-slate-100 dark:border-slate-800 text-center font-bold bg-inherit ${r[mo] > 0 ? color : 'text-slate-100/0 dark:text-slate-800/0'}`} style={{ backgroundColor: rowBg }}>{r[mo] > 0 ? r[mo].toLocaleString() : '-'}</td>)}<td className={`p-1 text-right font-black shadow-[-1px_0_0_0_rgba(0,0,0,0.1)] sticky right-0 z-10 border-l-2 border-slate-400 ${color}`} style={{ backgroundColor: solidWash }}>฿{r.staffTotal.toLocaleString()}</td></tr>)})}</tbody><tfoot><tr className="bg-slate-900 text-white font-black text-[10px] uppercase"><td className="p-1 sticky left-0 bg-slate-900 z-10 border-r border-slate-700 shadow-[1px_0_0_0_rgba(0,0,0,0.1)]">Grand Total</td>{MONTHS.map(m => { const sum = tableData.reduce((acc, curr) => acc + (curr[m] || 0), 0); return <td key={m} className="p-1 text-center border-r border-slate-700">{sum > 0 ? sum.toLocaleString() : '-'}</td>; })}<td className="p-1 text-right sticky right-0 bg-blue-700 z-10 shadow-[-1px_0_0_0_rgba(0,0,0,0.1)] border-l-2 border-blue-800 font-black">฿{tableData.reduce((acc, curr) => acc + curr.staffTotal, 0).toLocaleString()}</td></tr></tfoot></table></div>
-          );
-        }
-
-        function FilterDropdown({ label, value, onChange, staff, deptNames }) {
-          return (
-            <div className="flex flex-col gap-0.5 text-slate-900 dark:text-white"><label className="text-[8px] font-black uppercase text-slate-500 pl-1 tracking-widest uppercase">{label}</label><select value={value} onChange={e => onChange(e.target.value)} className="w-full px-1.5 py-1 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded font-black text-xs outline-none focus:border-blue-500 shadow-sm text-slate-900 dark:text-white"><option value="All">Show All</option><optgroup label="Departments" className="dark:bg-slate-900">{deptNames.map(d => <option key={String(d)} value={`DEPT:${String(d)}`}>{String(d)}</option>)}</optgroup><optgroup label="Individuals" className="dark:bg-slate-900">{staff.map(s => <option key={s.id} value={`STAFF:${s.name}`}>{s.name}</option>)}</optgroup></select></div>
-          );
-        }
-
         function DeptManagerModal({ configs, onClose, onSave }) {
           const [localConfigs, setLocalConfigs] = useState([...configs]);
           const [newName, setNewName] = useState('');
@@ -729,15 +715,18 @@
                     <div className="flex-1 overflow-auto">
                         <table className="w-full text-left border-collapse table-auto">
                             <thead className="bg-white dark:bg-slate-900 z-10 border-b-2 border-slate-500 font-black text-slate-500 uppercase text-[12px] sticky top-0">
-                                <tr><th className="p-2 w-10 text-center bg-slate-50 dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700"><input type="checkbox" checked={rows.every(r=>r.included)} onChange={e => setRows(rows.map(r=>({...r,included:e.target.checked})))} className="w-5 h-4 ml-1"/></th><th className="p-2 min-w-[140px] max-w-[140px] text-[13px] font-black uppercase tracking-tighter bg-slate-50 dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 text-left">Employee</th><th className="p-2 w-24 text-right font-black uppercase tracking-tighter bg-slate-50/50 dark:bg-slate-800/50 text-red-500 border-b border-slate-200 dark:border-slate-700">Owed</th><th className="p-2 w-20 text-center font-black uppercase tracking-tighter bg-slate-50 dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700">Sal</th><th className="p-2 w-20 text-center font-black uppercase tracking-tighter bg-slate-50 dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700">Adv</th><th className="p-2 w-20 text-center font-black uppercase tracking-tighter bg-slate-50 dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700">Rep</th><th className="p-2 text-[12px] font-black uppercase tracking-tighter bg-slate-50 dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 w-full text-left">Notes</th></tr>
+                                <tr><th className="p-2 w-10 text-center bg-slate-50 dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700"><input type="checkbox" checked={rows.every(r=>r.included)} onChange={e => setRows(rows.map(r=>({...r,included:e.target.checked})))} className="w-5 h-4 ml-1"/></th><th className="p-2 min-w-[140px] max-w-[140px] text-[13px] font-black uppercase tracking-tighter bg-slate-50 dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 text-left">Employee</th><th className="p-2 w-24 text-right font-black uppercase tracking-tighter bg-slate-50/50 dark:bg-slate-800/50 text-red-500 border-b border-slate-200 dark:border-slate-700 border-r dark:border-slate-700/50">Owed</th><th className="p-2 w-16 text-center font-black uppercase tracking-tighter bg-slate-100 dark:bg-slate-800/80 text-slate-400 border-b border-slate-200 dark:border-slate-700" title="Salary already paid this month">PAID</th><th className="p-2 w-16 text-center font-black uppercase tracking-tighter bg-slate-100 dark:bg-slate-800/80 text-slate-400 border-b border-slate-200 dark:border-slate-700 border-r dark:border-slate-700/50" title="Repayments already made this month">REPAID</th><th className="p-2 w-20 text-center font-black uppercase tracking-tighter bg-slate-50 dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700">+ Sal</th><th className="p-2 w-20 text-center font-black uppercase tracking-tighter bg-slate-50 dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700">+ Adv</th><th className="p-2 w-20 text-center font-black uppercase tracking-tighter bg-slate-50 dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700">+ Rep</th><th className="p-2 text-[12px] font-black uppercase tracking-tighter bg-slate-50 dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 w-full text-left">Notes</th></tr>
                             </thead>
                             <tbody>
                                 {rows.map(r => {
                                     const rowBg = r.included ? getDeptRowColor(r.department, deptConfigs) : 'transparent';
                                     const currentOwed = debtMap[(r.name || "").toLowerCase().trim()] || 0;
                                     const alreadyPaid = salaries.some(s => (s.staffName || "").trim().toLowerCase() === (r.name || "").toLowerCase().trim() && Number(s.year) === Number(yr) && isSameMonth(s.month, mo) && String(s.type).toLowerCase() === 'salary');
+                                    const thisMonthRecs = salaries.filter(s => (s.staffName || "").trim().toLowerCase() === (r.name || "").toLowerCase().trim() && Number(s.year) === Number(yr) && isSameMonth(s.month, mo));
+                                    const prevSal = thisMonthRecs.filter(s => String(s.type).toLowerCase() === 'salary').reduce((a,c) => a + Number(c.amount), 0);
+                                    const prevRep = thisMonthRecs.filter(s => String(s.type).toLowerCase() === 'repayment').reduce((a,c) => a + Number(c.amount), 0);
                                     return (
-                                        <tr key={r.id} className={`${r.included?'':'opacity-30'} border-b border-slate-100 dark:border-slate-800 transition-colors leading-none`}><td className="p-1 text-center align-middle" style={{ backgroundColor: rowBg }}><input type="checkbox" checked={r.included} onChange={e => update(r.id,'included',e.target.checked)} className="w-5 h-4 ml-1 cursor-pointer"/></td><td className="p-1 min-w-[140px] max-w-[140px] font-black text-[15px] text-slate-900 dark:text-slate-100 align-middle" style={{ backgroundColor: rowBg }}><div className="flex items-center gap-1.5 overflow-visible">{alreadyPaid && (<div className="group relative shrink-0"><AlertTriangle size={15} className="text-red-600 animate-pulse cursor-help" /><div className="absolute left-0 bottom-full mb-1 hidden group-hover:block bg-red-600 text-white text-[11px] px-2 py-1 rounded shadow-lg whitespace-nowrap z-50 font-black uppercase font-sans">Paid {mo}</div></div>)}<span className="truncate">{String(r.name)}</span></div></td><td className="p-1 text-right font-black text-[13px] text-red-500/80 align-middle whitespace-nowrap pr-3" style={{ backgroundColor: rowBg }}>฿{currentOwed.toLocaleString()}</td><td className="p-1 text-center align-middle" style={{ backgroundColor: rowBg }}><input type="number" className="w-16 border border-slate-300 dark:border-slate-700 dark:bg-slate-900 rounded font-black text-[15px] text-center outline-none focus:border-blue-500" value={r.salary} onChange={e => update(r.id,'salary',parseFloat(e.target.value)||0)} /></td><td className="p-1 text-center align-middle" style={{ backgroundColor: rowBg }}><input type="number" className="w-16 border border-slate-300 dark:border-slate-700 dark:bg-slate-900 rounded font-black text-[15px] text-center text-red-600 outline-none focus:border-blue-500" value={r.advance} onChange={e => update(r.id,'advance',parseFloat(e.target.value)||0)} /></td><td className="p-1 text-center align-middle" style={{ backgroundColor: rowBg }}><input type="number" className="w-16 border border-slate-300 dark:border-slate-700 dark:bg-slate-900 rounded font-black text-[15px] text-center text-green-600 outline-none focus:border-blue-500" value={r.repayment} onChange={e => update(r.id,'repayment',parseFloat(e.target.value)||0)} /></td><td className="p-1 align-middle w-full" style={{ backgroundColor: rowBg }}><input type="text" className="w-full border border-slate-200 dark:border-slate-800 dark:bg-slate-800 px-2 py-1.5 rounded text-[14px] font-medium outline-none" placeholder="..." value={r.notes} onChange={e => update(r.id,'notes',e.target.value)} /></td></tr>
+                                        <tr key={r.id} className={`${r.included?'':'opacity-30'} border-b border-slate-100 dark:border-slate-800 transition-colors leading-none`}><td className="p-1 text-center align-middle" style={{ backgroundColor: rowBg }}><input type="checkbox" checked={r.included} onChange={e => update(r.id,'included',e.target.checked)} className="w-5 h-4 ml-1 cursor-pointer"/></td><td className="p-1 min-w-[140px] max-w-[140px] font-black text-[15px] text-slate-900 dark:text-slate-100 align-middle" style={{ backgroundColor: rowBg }}><div className="flex items-center gap-1.5 overflow-visible">{alreadyPaid && (<div className="group relative shrink-0"><AlertTriangle size={15} className="text-red-600 animate-pulse cursor-help" /><div className="absolute left-0 bottom-full mb-1 hidden group-hover:block bg-red-600 text-white text-[11px] px-2 py-1 rounded shadow-lg whitespace-nowrap z-50 font-black uppercase font-sans">Paid {mo}</div></div>)}<span className="truncate">{String(r.name)}</span></div></td><td className="p-1 text-right font-black text-[13px] text-red-500/80 align-middle whitespace-nowrap pr-3 border-r dark:border-slate-700/30" style={{ backgroundColor: rowBg }}>฿{currentOwed.toLocaleString()}</td><td className="p-1 text-center font-bold text-[11px] text-slate-400 align-middle opacity-70" style={{ backgroundColor: rowBg }}>{prevSal > 0 ? prevSal.toLocaleString() : '-'}</td><td className="p-1 text-center font-bold text-[11px] text-green-500 align-middle opacity-70 border-r dark:border-slate-700/30" style={{ backgroundColor: rowBg }}>{prevRep > 0 ? prevRep.toLocaleString() : '-'}</td><td className="p-1 text-center align-middle" style={{ backgroundColor: rowBg }}><input type="number" className="w-16 border border-slate-300 dark:border-slate-700 dark:bg-slate-900 rounded font-black text-[15px] text-center outline-none focus:border-blue-500" value={r.salary} onChange={e => update(r.id,'salary',parseFloat(e.target.value)||0)} /></td><td className="p-1 text-center align-middle" style={{ backgroundColor: rowBg }}><input type="number" className="w-16 border border-slate-300 dark:border-slate-700 dark:bg-slate-900 rounded font-black text-[15px] text-center text-red-600 outline-none focus:border-blue-500" value={r.advance} onChange={e => update(r.id,'advance',parseFloat(e.target.value)||0)} /></td><td className="p-1 text-center align-middle" style={{ backgroundColor: rowBg }}><input type="number" className="w-16 border border-slate-300 dark:border-slate-700 dark:bg-slate-900 rounded font-black text-[15px] text-center text-green-600 outline-none focus:border-blue-500" value={r.repayment} onChange={e => update(r.id,'repayment',parseFloat(e.target.value)||0)} /></td><td className="p-1 align-middle w-full" style={{ backgroundColor: rowBg }}><input type="text" className="w-full border border-slate-200 dark:border-slate-800 dark:bg-slate-800 px-2 py-1.5 rounded text-[14px] font-medium outline-none" placeholder="..." value={r.notes} onChange={e => update(r.id,'notes',e.target.value)} /></td></tr>
                                     )})}
                             </tbody>
                         </table>
