@@ -49,7 +49,8 @@
           Users, DollarSign, FileUp, Plus, Search, Trash2, Edit2, CheckCircle2, 
           XCircle, History, Calendar, ArrowRightLeft, AlertCircle, Check, 
           ArrowUpDown, BarChart3, TrendingUp, ChevronDown, ChevronUp, Settings, 
-          Scale, AlertTriangle, Eye, EyeOff, Database, Info, Filter, Users2, Layers
+          Scale, AlertTriangle, Eye, EyeOff, Database, Info, Filter, Users2, Layers,
+          ArrowUp, ArrowDown
         } from 'lucide-react';
 
         import { initializeApp } from 'https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js';
@@ -94,10 +95,11 @@
         const TYPES = ['Salary', 'Advance', 'Repayment'];
         const DEFAULT_DEPT_CONFIGS = [
           { name: 'Management', color: '#3b82f6' },
-          { name: 'Bar', color: '#ffee00' },
-          { name: 'Housekeeping', color: '#ff99cc' },
           { name: 'Maintenance', color: '#22c55e' },
-          { name: 'Other', color: '#64748b' }
+          { name: 'Housekeeping', color: '#ff99cc' },
+          { name: 'Bar', color: '#ffee00' },
+          { name: 'Part Time', color: '#a855f7' },
+          { name: 'DJ', color: '#00ff99' }
         ];
 
         const MANAGEMENT_ORDER = ['Mint', 'Fah', 'Sao', 'Loren', 'Mike'];
@@ -157,7 +159,333 @@
           return cleanDb === cleanTarget || cleanDb.includes(cleanTarget) || cleanTarget.includes(cleanDb);
         };
 
-        // --- Main Components ---
+        // --- Reusable UI Components ---
+        function Button({ children, onClick, variant = 'primary', size = 'md', className = "", type = "button" }) {
+          return (<button type={type} onClick={onClick} className={`${variant === 'primary' ? 'bg-blue-600 text-white shadow-sm hover:bg-blue-700' : 'border-2 border-slate-400 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800'} ${size === 'sm' ? 'px-2 py-0.5 text-xs' : 'px-3 py-1.5 text-sm'} rounded font-black uppercase tracking-tighter transition-all flex items-center gap-1 active:scale-95 ${className}`}>{children}</button>);
+        }
+
+        function Tab({ active, onClick, icon, label }) {
+          return (<button onClick={onClick} className={`flex items-center gap-1.5 px-3 py-2 text-[10px] font-black uppercase tracking-widest border-b-2 transition-all flex-1 justify-center whitespace-nowrap ${active ? 'border-blue-600 text-blue-600 bg-blue-50/20 dark:bg-blue-900/20 shadow-inner' : 'border-transparent text-slate-400 hover:text-slate-600 dark:hover:text-slate-300'}`}>{icon}<span>{label}</span></button>);
+        }
+
+        function Modal({ title, children, onClose }) {
+          return (<div className="fixed inset-0 z-[100] flex items-center justify-center p-2 bg-slate-950/80 backdrop-blur-sm"><div className="bg-white dark:bg-slate-900 w-full max-w-sm rounded-lg shadow-2xl overflow-hidden border-2 border-slate-400 dark:border-slate-700 animate-in zoom-in-95 duration-150 text-slate-900 dark:text-slate-100"><div className="px-4 py-2 bg-slate-50 dark:bg-slate-800 border-b border-slate-400 dark:border-slate-700 flex justify-between items-center"><h3 className="text-[10px] font-black uppercase tracking-widest text-slate-600 dark:text-slate-400">{title}</h3><button onClick={onClose} className="p-1 hover:bg-slate-200 dark:hover:bg-slate-700 rounded transition-colors text-slate-500"><XCircle size={18}/></button></div><div className="p-4">{children}</div></div></div>);
+        }
+
+        function FilterDropdown({ label, value, onChange, staff, deptNames }) {
+          return (
+            <div className="flex flex-col gap-0.5 text-slate-900 dark:text-white"><label className="text-[8px] font-black uppercase text-slate-500 pl-1 tracking-widest uppercase">{label}</label><select value={value} onChange={e => onChange(e.target.value)} className="w-auto min-w-[100px] px-1.5 py-1 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded font-black text-xs outline-none focus:border-blue-500 shadow-sm text-slate-900 dark:text-white"><option value="All">Show All</option><optgroup label="Departments" className="dark:bg-slate-900">{deptNames.map(d => <option key={String(d)} value={`DEPT:${String(d)}`}>{String(d)}</option>)}</optgroup><optgroup label="Individuals" className="dark:bg-slate-900">{(staff || []).map(s => <option key={s.id} value={`STAFF:${s.name}`}>{s.name}</option>)}</optgroup></select></div>
+          );
+        }
+
+        // --- Data Display Components ---
+        function CalendarTable({ data, totals, isLoanTable = false, deptConfigs, collapseExStaff }) {
+          const processedRows = useMemo(() => {
+            if (!collapseExStaff) return data || [];
+            const activeRows = (data || []).filter(r => r.status !== 'inactive');
+            const inactiveRows = (data || []).filter(r => r.status === 'inactive');
+            if (inactiveRows.length === 0) return activeRows;
+            const exStaffRow = { name: "Ex-Staff", department: "Other", status: "inactive", monthlyActivity: {}, rowTotal: 0, balanceForward: 0 };
+            MONTHS.forEach(m => {
+              const sum = inactiveRows.reduce((acc, row) => acc + (row[m] || 0), 0);
+              exStaffRow[m] = sum;
+              exStaffRow.monthlyActivity[m] = inactiveRows.some(row => row.monthlyActivity?.[m]);
+            });
+            if (isLoanTable) exStaffRow.balanceForward = inactiveRows.reduce((acc, row) => acc + (row.balanceForward || 0), 0);
+            exStaffRow.rowTotal = inactiveRows.reduce((acc, row) => acc + (row.rowTotal || 0), 0);
+            return [...activeRows, exStaffRow];
+          }, [data, collapseExStaff, isLoanTable]);
+
+          return (
+            <div className="overflow-auto bg-white dark:bg-slate-900 rounded border-2 border-slate-400 dark:border-slate-700 shadow-sm scroll-smooth">
+              <table className="w-full text-[13px] border-separate border-spacing-0">
+                <thead className="sticky top-0 z-20">
+                  <tr className="font-black uppercase text-slate-600 dark:text-slate-300 text-[10px]">
+                    <th className="p-1 text-left sticky left-0 border-b-2 border-r-2 border-slate-400 dark:border-slate-700 min-w-[100px] z-30 bg-[#e8eaed] dark:bg-slate-800">Staff</th>
+                    {isLoanTable && <th className="p-1 border-b-2 border-r border-slate-300 dark:border-slate-700 min-w-[50px] text-center uppercase bg-[rgba(0,0,0,0.15)]">Prev</th>}
+                    {MONTHS.map(m => <th key={m} className="p-1 border-b-2 border-r border-slate-300 dark:border-slate-700 min-w-[50px] text-center uppercase bg-[rgba(0,0,0,0.15)]">{(m.split('-')[1]).toUpperCase()}</th>)}
+                    <th className="p-1 text-right sticky right-0 border-b-2 border-l-2 border-slate-400 dark:border-slate-700 min-w-[85px] z-30 shadow-[-2px_0_4px_rgba(0,0,0,0.05)] bg-[#e8eaed] dark:bg-slate-800">Total</th>
+                  </tr>
+                </thead>
+                <tbody>{(processedRows || []).map((row, idx) => {
+                  const rowBg = getDeptRowColor(row.department, deptConfigs);
+                  const solidWash = getDeptSolidWash(row.department, deptConfigs);
+                  return (
+                    <tr key={idx} className={`${row.status==='inactive'?'italic':''} leading-none transition-colors`}>
+                      <td className="p-1 font-black sticky left-0 border-b border-r-2 border-slate-400 dark:border-slate-700 whitespace-nowrap z-10 shadow-[1px_0_0_0_rgba(0,0,0,0.1)]" style={{ backgroundColor: solidWash }}><div className="flex items-center gap-1 bg-transparent"><div className={`w-1.5 h-1.5 rounded-full shrink-0 border border-white/50 shadow-sm`} style={{ backgroundColor: getDeptDotColor(row.department, deptConfigs) }}></div><span className={row.status === 'inactive' ? 'text-slate-400' : 'text-slate-900 dark:text-slate-100'}>{row.name}</span></div></td>
+                      {isLoanTable && <td className="p-1 text-center border-b border-r border-slate-300 dark:border-slate-800 font-bold text-slate-500" style={{ backgroundColor: rowBg }}>{row.balanceForward !== 0 ? Math.abs(row.balanceForward).toLocaleString() : '-'}</td>}
+                      {MONTHS.map(m => { const val = row[m] || 0; const hasActivity = row.monthlyActivity?.[m]; return (<td key={m} className={`p-1 text-center border-b border-r border-slate-300 dark:border-slate-800 font-black ${row.status === 'inactive' ? 'text-slate-400' : val > 0 ? (isLoanTable ? 'text-red-600' : 'text-slate-900 dark:text-slate-100') : val < 0 ? 'text-green-600' : 'text-slate-300 dark:text-slate-700'}`} style={{ backgroundColor: rowBg }}>{val !== 0 ? Math.abs(val).toLocaleString() : (hasActivity ? '0' : '-')}</td>); })}
+                      <td className="p-1 text-right font-black border-b border-slate-400 dark:border-slate-700 sticky right-0 z-10 border-l-2 shadow-[-1px_0_0_0_rgba(0,0,0,0.1)]" style={{ backgroundColor: solidWash }}>{(row.rowTotal || 0).toLocaleString()}</td>
+                    </tr>
+                  )})}
+                </tbody>
+                <tfoot className="sticky bottom-0 z-20"><tr className="bg-slate-900 text-white font-black uppercase text-[10px]"><td className="p-1 sticky left-0 bg-slate-900 z-10 border-r-2 border-slate-700 uppercase shadow-[1px_0_0_0_rgba(0,0,0,0.1)]">Grand Totals</td>{isLoanTable && <td className="p-1 text-center border-r border-slate-700">{totals.balanceForward !== 0 ? Math.abs(totals.balanceForward).toLocaleString() : '-'}</td>}{MONTHS.map(m => <td key={m} className="p-1 text-center border-r border-slate-700">{totals[m]!==0?Math.abs(totals[m]).toLocaleString() : '-'}</td>)}<td className="p-1 text-right sticky right-0 bg-blue-700 z-10 shadow-[-2px_0_10px_rgba(0,0,0,0.4)] border-l-2 border-blue-800 font-black text-[11px]">฿{(totals.rowTotal || 0).toLocaleString()}</td></tr></tfoot>
+              </table>
+            </div>
+          );
+        }
+
+        function HistoryView({ filteredLog, staffMap, deptConfigs, logSort, setLogSort, setEditItem, setIsEditModalOpen, logFilter, setLogFilter, sortedStaff, deptNames, salaries, logPeriodFilter, setLogPeriodFilter, groupHistoryByBatch, setGroupHistoryByBatch }) {
+          const batches = useMemo(() => {
+            if (!groupHistoryByBatch) return [{ id: 'all', items: filteredLog || [], total: null }];
+            const groups = [];
+            let currentGroup = null;
+            (filteredLog || []).forEach(log => {
+              const batchId = log.batchId || (log.timestamp?.split('T')[0] + '-virtual');
+              if (!currentGroup || currentGroup.id !== batchId) {
+                currentGroup = { id: batchId, items: [], total: 0, date: log.timestamp, isVirtual: !log.batchId };
+                groups.push(currentGroup);
+              }
+              currentGroup.items.push(log);
+              if (['salary', 'advance'].includes(String(log.type).toLowerCase())) {
+                currentGroup.total += (Number(log.amount) || 0);
+              }
+            });
+            return groups;
+          }, [filteredLog, groupHistoryByBatch]);
+
+          return (
+            <div className="h-full flex flex-col p-1.5 space-y-2 text-slate-900">
+              <div className="flex flex-wrap items-end gap-3 shrink-0 sticky top-0 z-40 bg-slate-50 dark:bg-slate-950 pb-2 border-b dark:border-slate-800">
+                <div className="w-auto">
+                  <FilterDropdown label="Who:" value={logFilter} onChange={setLogFilter} staff={sortedStaff} deptNames={deptNames} />
+                </div>
+                <div className="w-auto flex flex-col gap-0.5">
+                  <label className="text-[8px] font-black uppercase text-slate-500 pl-1 tracking-widest uppercase">When:</label>
+                  <select value={logPeriodFilter} onChange={e => setLogPeriodFilter(e.target.value)} className="w-auto min-w-[100px] px-1.5 py-1 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded font-black text-xs outline-none text-slate-900 dark:text-white">
+                    <option value="All">All Periods</option>
+                    {[...new Set((salaries || []).map(s => {
+                      if (!s.year || !s.month) return null;
+                      return `${s.year}-${s.month}`;
+                    }).filter(Boolean))]
+                      .sort()
+                      .reverse()
+                      .map(p => {
+                         const parts = p.split('-');
+                         return `${parts[0]}-${parts[2]}`;
+                      })
+                      .filter((v, i, a) => a.indexOf(v) === i)
+                      .map(p => <option key={p} value={p}>{p}</option>)
+                    }
+                  </select>
+                </div>
+                <div className="flex items-center gap-1.5 mb-1 ml-2">
+                  <input type="checkbox" id="groupByBatchShort" checked={groupHistoryByBatch} onChange={e => setGroupHistoryByBatch(e.target.checked)} className="w-3.5 h-3.5 cursor-pointer" />
+                  <label htmlFor="groupByBatchShort" className="text-[10px] font-black uppercase text-slate-600 dark:text-slate-400 cursor-pointer">BATCH MODE</label>
+                </div>
+              </div>
+              <div className="flex-1 overflow-auto bg-white dark:bg-slate-900 rounded border-2 border-slate-400 dark:border-slate-700">
+                <table className="w-full text-left border-collapse text-[11px]">
+                  <thead className="sticky top-0 z-10 text-[9px] uppercase font-black text-slate-600 dark:text-slate-300">
+                    <tr>
+                      <th className="p-1 cursor-pointer bg-[#e8eaed] dark:bg-slate-800" onClick={() => setLogSort(prev => ({key:'timestamp', dir: prev.dir === 'asc' ? 'desc' : 'asc'}))}>Date <ArrowUpDown size={7} className="inline"/></th>
+                      <th className="p-1 cursor-pointer bg-[#e8eaed] dark:bg-slate-800" onClick={() => setLogSort(prev => ({key:'staffName', dir: prev.dir === 'asc' ? 'desc' : 'asc'}))}>Staff <ArrowUpDown size={7} className="inline"/></th>
+                      <th className="p-1 cursor-pointer bg-[#e8eaed] dark:bg-slate-800" onClick={() => setLogSort(prev => ({key:'period', dir: prev.dir === 'asc' ? 'desc' : 'asc'}))}>Period <ArrowUpDown size={7} className="inline"/></th>
+                      <th className="p-1 cursor-pointer bg-[#e8eaed] dark:bg-slate-800" onClick={() => setLogSort(prev => ({key:'type', dir: prev.dir === 'asc' ? 'desc' : 'asc'}))}>Type <ArrowUpDown size={7} className="inline"/></th>
+                      <th className="p-1 text-right cursor-pointer bg-[#e8eaed] dark:bg-slate-800" onClick={() => setLogSort(prev => ({key:'amount', dir: prev.dir === 'asc' ? 'desc' : 'asc'}))}>Amount <ArrowUpDown size={7} className="inline"/></th>
+                      <th className="p-1 bg-[#e8eaed] dark:bg-slate-800">Notes</th>
+                      <th className="p-1 bg-[#e8eaed] dark:bg-slate-800"></th>
+                    </tr>
+                  </thead>
+                  <tbody className="dark:text-slate-200">
+                    {(batches || []).map(batch => (
+                      <Fragment key={batch.id}>
+                        {groupHistoryByBatch && (
+                          <tr className="bg-blue-600/20 dark:bg-blue-900/40 border-y border-blue-400 dark:border-blue-800">
+                            <td colSpan={7} className="p-1.5 px-3">
+                              <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-2 text-blue-700 dark:text-blue-300 font-black text-[10px] uppercase tracking-wider"><Layers size={12}/> {batch.isVirtual ? `Virtual Batch: ${formatDisplayDate(batch.date)}` : `System Batch: Transaction`}</div>
+                                <div className="font-black text-blue-600 dark:text-blue-400">Transfer Total: ฿{(batch.total || 0).toLocaleString()}</div>
+                              </div>
+                            </td>
+                          </tr>
+                        )}
+                        {(batch.items || []).map(s => {
+                          const member = staffMap[(s.staffName || "").trim()];
+                          const rowBg = getDeptRowColor(member?.department, deptConfigs);
+                          return (
+                            <tr key={s.id} className={`border-b border-slate-200 dark:border-slate-800 transition-colors ${member?.status === 'inactive' ? 'opacity-60 italic' : ''}`}>
+                              <td className="p-1 whitespace-nowrap" style={{ backgroundColor: rowBg }}>{formatDisplayDate(s.timestamp)}</td>
+                              <td className="p-1 font-black truncate max-w-[80px]" style={{ backgroundColor: rowBg }}>{String(s.staffName)}</td>
+                              <td className="p-1 font-bold" style={{ backgroundColor: rowBg }}>{s.period}</td>
+                              <td className="p-1" style={{ backgroundColor: rowBg }}><span className={`px-1.5 py-0.5 rounded text-[8px] font-black uppercase ${String(s.type).toLowerCase()==='advance'?'text-red-600 bg-white/70':String(s.type).toLowerCase()==='repayment'?'text-green-600 bg-white/70':'text-slate-500'}`}>{String(s.type)}</span></td>
+                              <td className={`p-1 text-right font-black ${String(s.type).toLowerCase()==='advance'?'text-red-600':String(s.type).toLowerCase()==='repayment'?'text-green-600':''}`} style={{ backgroundColor: rowBg }}>฿{(Number(s.amount) || 0).toLocaleString()}</td>
+                              <td className="p-1 italic text-slate-500 dark:text-slate-400 text-[10px] truncate max-w-[100px]" style={{ backgroundColor: rowBg }}>{s.notes || '-'}</td>
+                              <td className="p-1 text-right" style={{ backgroundColor: rowBg }}><div className="flex gap-1 justify-end"><button onClick={() => { setEditItem(s); setIsEditModalOpen(true); }} className="text-slate-400 hover:text-blue-500 p-0.5"><Edit2 size={12}/></button><button onClick={() => deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'salaries', s.id))} className="text-slate-300 hover:text-red-500 p-0.5"><Trash2 size={12}/></button></div></td>
+                            </tr>
+                          );
+                        })}
+                      </Fragment>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          );
+        }
+
+        function DebtLedger({ salaries, staff, filter, sort, deptConfigs, deptNames }) {
+          const ledgerData = useMemo(() => (staff || []).map(m => {
+              const recs = (salaries || []).filter(s => (s.staffName || "").trim().toLowerCase() === (m.name || "").trim().toLowerCase());
+              const advances = recs.filter(s => String(s.type).toLowerCase() === 'advance').reduce((s, c) => s + (Number(c.amount) || 0), 0);
+              const repayments = recs.filter(s => String(s.type).toLowerCase() === 'repayment').reduce((s, c) => s + (Number(c.amount) || 0), 0);
+              return { ...m, advances, repayments, balance: advances - repayments };
+            }).filter(m => { 
+                if (filter === "All") return m.balance !== 0 || m.status === 'active'; 
+                if (filter.startsWith("DEPT:")) return m.department === filter.replace("DEPT:", ""); 
+                if (filter.startsWith("STAFF:")) return m.name === filter.replace("STAFF:", ""); 
+                return true; 
+            }).sort((a, b) => { 
+                if (sort.key === 'balance') return b.balance - a.balance; 
+                if (sort.key === 'advances') return b.advances - a.advances; 
+                if (sort.key === 'name') {
+                    const scoreA = getSortScore(a, deptNames);
+                    const scoreB = getSortScore(b, deptNames);
+                    return scoreA - scoreB;
+                }
+                return (a.name || "").localeCompare(b.name || ""); 
+            }), [salaries, staff, filter, sort, deptNames]);
+          const [expandedId, setExpandedId] = useState(null);
+          return (
+            <table className="w-full text-left border-separate border-spacing-0">
+              <thead className="font-black uppercase border-b-2 border-slate-400 dark:border-slate-700 sticky top-0 z-20 text-[10px] text-slate-600 dark:text-slate-300">
+                <tr><th className="p-2 border-r dark:border-slate-700 bg-[rgba(0,0,0,0.15)]">Staff Member</th><th className="p-2 border-r dark:border-slate-700 text-right text-red-500 bg-[rgba(0,0,0,0.15)]">All-Time Advances</th><th className="p-2 border-r dark:border-slate-700 text-right text-green-600 bg-[rgba(0,0,0,0.15)]">All-Time Repaid</th><th className="p-2 text-right bg-[rgba(0,0,0,0.15)]">Owed Balance</th></tr>
+              </thead>
+              <tbody>{(ledgerData || []).map(m => {
+                  const rowBg = getDeptRowColor(m.department, deptConfigs);
+                  return (
+                    <Fragment key={m.id}>
+                      <tr onClick={() => setExpandedId(expandedId === m.id ? null : m.id)} className={`border-b border-slate-100 dark:border-slate-800 cursor-pointer hover:brightness-95 transition-all leading-none ${m.status === 'inactive' ? 'italic text-slate-400 opacity-60' : 'text-slate-900 dark:text-slate-100'}`}>
+                        <td className="p-2 font-black border-r dark:border-slate-700 flex items-center gap-2" style={{ backgroundColor: rowBg }}><div className="w-2 h-2 rounded-full border border-white/50 shadow-sm" style={{ backgroundColor: getDeptDotColor(m.department, deptConfigs) }}></div>{m.name}{expandedId === m.id ? <ChevronUp size={12}/> : <ChevronDown size={12}/>}</td>
+                        <td className="p-2 border-r dark:border-slate-700 text-right font-bold text-red-500/70" style={{ backgroundColor: rowBg }}>฿{(m.advances || 0).toLocaleString()}</td>
+                        <td className="p-2 border-r dark:border-slate-700 text-right font-bold text-green-600/70" style={{ backgroundColor: rowBg }}>฿{(m.repayments || 0).toLocaleString()}</td>
+                        <td className={`p-2 text-right font-black border-l-2 border-slate-400 dark:border-slate-700 ${m.balance > 0 ? 'text-red-700' : 'text-slate-300 dark:text-slate-600'}`} style={{ backgroundColor: rowBg }}>฿{(m.balance || 0).toLocaleString()}</td>
+                      </tr>
+                      {expandedId === m.id && (<tr><td colSpan={4} className="bg-slate-100 dark:bg-slate-800 p-0 shadow-inner border-b-2 border-slate-300 dark:border-slate-700"><div className="p-1 px-4 bg-slate-900 text-[8px] text-slate-400 font-black uppercase tracking-widest">Historical Debt Ledger Flow</div><table className="w-full text-[10px] border-collapse bg-white dark:bg-slate-900"><thead className="bg-slate-50 dark:bg-slate-800 text-[9px] font-black border-b border-slate-300 dark:border-slate-700 text-slate-500 dark:text-slate-400 uppercase"><tr><th className="p-1 text-left px-4">Date</th><th className="p-1 text-right">Type</th><th className="p-1 text-right">Amount</th><th className="p-1 text-right px-4">Running Total</th></tr></thead><tbody>{(() => { let runningBal = 0; const staffRecs = (salaries || []).filter(s => (s.staffName || "").trim().toLowerCase() === (m.name || "").trim().toLowerCase()).filter(s => ['advance', 'repayment'].includes(String(s.type).toLowerCase())).sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp)); if (staffRecs.length === 0) return <tr><td colSpan={4} className="p-4 text-center text-slate-300 dark:text-slate-600 italic">No historical debt entries.</td></tr>; return staffRecs.map((s, idx) => { const amt = Number(s.amount) || 0; const t = String(s.type).toLowerCase(); runningBal += (t === 'advance' ? amt : -amt); return (<tr key={idx} className="border-b border-slate-50 dark:border-slate-800/50"><td className="p-1 px-4 font-bold text-slate-500 dark:text-slate-400">{formatDisplayDate(s.timestamp)}</td><td className={`p-1 text-right text-[8px] font-black uppercase ${t === 'advance' ? 'text-red-500' : 'text-green-600'}`}>{String(s.type)}</td><td className="p-1 text-right font-black dark:text-slate-200">฿{amt.toLocaleString()}</td><td className={`p-1 text-right px-4 font-black bg-slate-50 dark:bg-slate-800/20 ${runningBal > 0 ? 'text-red-600' : 'text-slate-400 dark:text-slate-500'}`}>฿{runningBal.toLocaleString()}</td></tr>); }); })()}</tbody></table></td></tr>)}</Fragment>
+                  )})}
+              </tbody>
+            </table>
+          );
+        }
+
+        function LedgerReportTable({ salaries, staff, type, year, color, deptConfigs }) {
+          const tableData = useMemo(() => (staff || []).map(m => { const row = { name: m.name, status: m.status, id: m.id, department: m.department }; let staffTotal = 0; MONTHS.forEach(mo => { const amt = (salaries || []).filter(s => (s.staffName || "").trim().toLowerCase() === (m.name || "").trim().toLowerCase() && String(s.type).toLowerCase() === String(type).toLowerCase() && Number(s.year) === year && isSameMonth(s.month, mo)).reduce((a,c) => a + (Number(c.amount) || 0), 0); row[mo] = amt; staffTotal += amt; }); row.staffTotal = staffTotal; return row; }).filter(r => r.staffTotal > 0), [salaries, staff, type, year]);
+          if (tableData.length === 0) return <div className="p-4 border-2 border-dashed border-slate-300 dark:border-slate-700 rounded text-center text-slate-400 text-[11px] font-medium uppercase">No {type} records for {year}.</div>;
+          return (
+            <div className="overflow-auto bg-white dark:bg-slate-900 border-2 border-slate-400 dark:border-slate-700 rounded shadow-sm"><table className="w-full text-[10px] border-collapse border-separate border-spacing-0"><thead className="bg-slate-50 dark:bg-slate-800 font-black uppercase border-b-2 border-slate-400 dark:border-slate-700 sticky top-0 z-10 text-slate-600 dark:text-slate-300"><tr><th className="p-1 border-r border-slate-400 dark:border-slate-700 sticky left-0 bg-inherit z-10 text-left min-w-[80px] shadow-[1px_0_0_0_rgba(0,0,0,0.05)] bg-[#e8eaed] dark:bg-slate-800">Staff</th>{MONTHS.map(m => <th key={m} className="p-1 border-r border-slate-400 dark:border-slate-700 text-center min-w-[50px] uppercase bg-[rgba(0,0,0,0.15)]">{(m.split('-')[1]).toUpperCase()}</th>)}<th className="p-1 text-right min-w-[70px] sticky right-0 z-10 border-l-2 border-slate-400 shadow-[-1px_0_0_0_rgba(0,0,0,0.05)] bg-[#e8eaed] dark:bg-slate-800">Total</th></tr></thead><tbody>{(tableData || []).map(r => { const rowBg = getDeptRowColor(r.department, deptConfigs); const solidWash = getDeptSolidWash(r.department, deptConfigs); return (<tr key={r.id} className={`border-b border-slate-200 dark:border-slate-800 leading-none transition-colors ${r.status === 'inactive' ? 'italic opacity-60' : ''}`}><td className="p-1 font-black border-r border-slate-400 dark:border-slate-700 sticky left-0 z-10 text-slate-900 dark:text-slate-100 shadow-[1px_0_0_0_rgba(0,0,0,0.1)]" style={{ backgroundColor: solidWash }}>{r.name}</td>{MONTHS.map(mo => <td key={mo} className={`p-1 border-r border-slate-100 dark:border-slate-800 text-center font-bold bg-inherit ${r[mo] > 0 ? color : 'text-slate-100/0 dark:text-slate-800/0'}`} style={{ backgroundColor: rowBg }}>{r[mo] > 0 ? r[mo].toLocaleString() : '-'}</td>)}<td className={`p-1 text-right font-black shadow-[-1px_0_0_0_rgba(0,0,0,0.1)] sticky right-0 z-10 border-l-2 border-slate-400 ${color}`} style={{ backgroundColor: solidWash }}>฿{(r.staffTotal || 0).toLocaleString()}</td></tr>)})}</tbody><tfoot><tr className="bg-slate-900 text-white font-black text-[10px] uppercase"><td className="p-1 sticky left-0 bg-slate-900 z-10 border-r border-slate-700 shadow-[1px_0_0_0_rgba(0,0,0,0.1)]">Grand Total</td>{MONTHS.map(m => { const sum = tableData.reduce((acc, curr) => acc + (curr[m] || 0), 0); return <td key={m} className="p-1 text-center border-r border-slate-700">{sum > 0 ? sum.toLocaleString() : '-'}</td>; })}<td className="p-1 text-right sticky right-0 bg-blue-700 z-10 shadow-[-1px_0_0_0_rgba(0,0,0,0.1)] border-l-2 border-blue-800 font-black">฿{tableData.reduce((acc, curr) => acc + (curr.staffTotal || 0), 0).toLocaleString()}</td></tr></tfoot></table></div>
+          );
+        }
+
+        function ReportsView({ salaries, staff, staffMap, selectedYear, setSelectedYear, years, deptConfigs }) {
+          const [expandedStaff, setExpandedStaff] = useState(null);
+          const yearsList = [2024, 2025, 2026];
+          const getSummary = (member, year) => { 
+            const yearRecs = (salaries || []).filter(s => Number(s.year) === year && (s.staffName || "").trim().toLowerCase() === (member.name || "").trim().toLowerCase()); 
+            return { sal: yearRecs.filter(s => String(s.type).toLowerCase() === 'salary').reduce((sum, curr) => sum + (Number(curr.amount) || 0), 0), adv: yearRecs.filter(s => String(s.type).toLowerCase() === 'advance').reduce((sum, curr) => sum + (Number(curr.amount) || 0), 0), rep: yearRecs.filter(s => String(s.type).toLowerCase() === 'repayment').reduce((sum, curr) => sum + (Number(curr.amount) || 0), 0) }; 
+          };
+          const getTotalEarnings = (member) => { return (salaries || []).filter(s => (s.staffName || "").trim().toLowerCase() === (member.name || "").trim().toLowerCase()).filter(s => ['salary', 'advance'].includes(String(s.type).toLowerCase())).reduce((sum, c) => sum + (Number(c.amount) || 0), 0); };
+          const deptTotals = useMemo(() => (deptConfigs || []).map(deptConfig => { 
+            const dept = deptConfig?.name || "Unknown"; 
+            const row = { name: dept }; 
+            MONTHS.forEach(m => { 
+                row[m] = (salaries || []).filter(s => Number(s.year) === selectedYear && isSameMonth(s.month, m) && staffMap[(s.staffName || "").trim()]?.department === dept && ['salary', 'advance'].includes(String(s.type).toLowerCase())).reduce((sum, curr) => sum + (Number(curr.amount) || 0), 0); 
+            }); 
+            row.total = MONTHS.reduce((sum, m) => sum + (row[m] || 0), 0); return row; 
+          }), [salaries, selectedYear, staffMap, deptConfigs]);
+          return (
+            <div className="h-full flex flex-col p-2 space-y-12 overflow-y-auto no-scrollbar pb-24 text-slate-900 dark:text-slate-100">
+              <div className="space-y-1">
+                <div className="sticky top-0 z-20 bg-slate-50 dark:bg-slate-950 flex justify-between items-end px-1 pb-1 border-b border-slate-200 dark:border-slate-800"><h4 className="text-[10px] font-black uppercase text-slate-500 tracking-tight uppercase">Monthly Dept Spending (฿)</h4><select value={selectedYear} onChange={e => setSelectedYear(parseInt(e.target.value))} className="text-[9px] font-black px-1 border-2 border-slate-300 dark:border-slate-700 dark:bg-slate-800 rounded outline-none shadow-sm text-slate-800 dark:text-white">{(years || []).map(y => <option key={y} value={y}>{y}</option>)}</select></div>
+                <div className="overflow-auto bg-white dark:bg-slate-900 border-2 border-slate-400 dark:border-slate-700 rounded shadow-sm"><table className="w-full border-separate border-spacing-0 text-[12px]"><thead className="font-black uppercase text-[9px] border-b-2 border-slate-400 dark:border-slate-700 sticky top-0 text-slate-600 dark:text-slate-300"><tr><th className="p-1 border-r border-slate-400 dark:border-slate-700 sticky left-0 z-10 text-left min-w-[100px] shadow-[1px_0_0_0_rgba(0,0,0,0.05)] bg-[#e8eaed] dark:bg-slate-800">Sector</th>{MONTHS.map(m => <th key={m} className="p-1 border-r border-slate-400 dark:border-slate-700 text-center min-w-[50px] uppercase bg-[rgba(0,0,0,0.15)]">{(m.split('-')[1]).toUpperCase()}</th>)}<th className="p-1 text-right min-w-[75px] sticky right-0 z-10 border-l-2 border-slate-400 shadow-[-1px_0_0_0_rgba(0,0,0,0.05)] bg-[#e8eaed] dark:bg-slate-800">Total</th></tr></thead><tbody>{(deptTotals || []).map(r => { const rowBg = getDeptRowColor(r.name, deptConfigs); const solidWash = getDeptSolidWash(r.name, deptConfigs); return (<tr key={r.name} className="border-b border-slate-300 dark:border-slate-800 leading-tight transition-colors"><td className="p-1 font-black border-r border-slate-400 dark:border-slate-700 sticky left-0 z-10 shadow-[1px_0_0_0_rgba(0,0,0,0.1)]" style={{ backgroundColor: solidWash }}>{r.name}</td>{MONTHS.map(m => <td key={m} className="p-1 border-r border-slate-200 dark:border-slate-800 text-center" style={{ backgroundColor: rowBg }}>{r[m] > 0 ? r[m].toLocaleString() : '-'}</td>)}<td className="p-1 text-right font-black sticky right-0 z-10 border-l-2 border-slate-400 shadow-[-1px_0_0_0_rgba(0,0,0,0.1)]" style={{ backgroundColor: solidWash }}>฿{(r.total || 0).toLocaleString()}</td></tr>)})}</tbody><tfoot><tr className="bg-slate-900 text-white font-black text-[10px] uppercase"><td className="p-1 sticky left-0 bg-slate-900 z-10 border-r border-slate-700 shadow-[1px_0_0_0_rgba(0,0,0,0.1)]">Grand Total</td>{MONTHS.map(m => { const sum = deptTotals.reduce((acc, curr) => acc + (curr[m] || 0), 0); return <td key={m} className="p-1 text-center border-r border-slate-700">{sum > 0 ? sum.toLocaleString() : '-'}</td>; })}<td className="p-1 text-right sticky right-0 bg-blue-700 z-10 shadow-[-1px_0_0_0_rgba(0,0,0,0.1)] border-l-2 border-blue-800 font-black">฿{deptTotals.reduce((acc, curr) => acc + (curr.total || 0), 0).toLocaleString()}</td></tr></tfoot></table></div>
+              </div>
+              <div className="space-y-4">
+                <div><h4 className="text-[10px] font-black uppercase text-red-600 flex items-center gap-1 ml-1 tracking-tight">Advances Ledger ({selectedYear})</h4><LedgerReportTable salaries={salaries} staff={staff} type="Advance" year={selectedYear} color="text-red-600" deptConfigs={deptConfigs} /></div>
+                <div><h4 className="text-[10px] font-black uppercase text-green-600 flex items-center gap-1 ml-1 tracking-tight">Repayments Ledger ({selectedYear})</h4><LedgerReportTable salaries={salaries} staff={staff} type="Repayment" year={selectedYear} color="text-green-600" deptConfigs={deptConfigs} /></div>
+              </div>
+              <div className="space-y-1 pb-10">
+                <h4 className="text-[10px] font-black uppercase text-slate-500 flex items-center gap-1 ml-1 tracking-tight"><TrendingUp size={12}/> STAFF SUMMARIES (MULTI-YEAR)</h4>
+                <div className="border-2 border-slate-400 dark:border-slate-700 rounded overflow-hidden shadow-sm bg-white dark:bg-slate-900">
+                  <table className="w-full text-left border-separate border-spacing-0 text-[12px] table-fixed">
+                    <thead className="font-black uppercase text-[9px] border-b-2 border-slate-400 dark:border-slate-700 sticky top-0 z-10 text-slate-600 dark:text-slate-300"><tr><th className="p-1 border-r dark:border-slate-700 sticky left-0 z-10 w-[16%] shadow-[1px_0_0_0_rgba(0,0,0,0.05)] bg-[#e8eaed] dark:bg-slate-800">Staff Name</th>{yearsList.map(y => <th key={y} className="p-1 border-r dark:border-slate-700 text-center w-[20%] bg-[rgba(0,0,0,0.15)]">{y} Payouts</th>) }<th className="p-1 border-l-2 border-slate-400 dark:border-slate-700 text-center w-[24%] sticky right-0 z-10 shadow-[-1px_0_0_0_rgba(0,0,0,0.1)] bg-[#e8eaed] dark:bg-slate-800">Total Earnings</th></tr></thead>
+                    <tbody>{(staff || []).map(m => { const results = yearsList.map(y => getSummary(m, y)); const totalEarned = getTotalEarnings(m); if (results.every(r => r.sal + r.adv === 0) && m.status === 'inactive') return null; const rowBg = getDeptRowColor(m.department, deptConfigs); const solidWash = getDeptSolidWash(m.department, deptConfigs); return (<Fragment key={m.id}><tr className={`border-b border-slate-300 dark:border-slate-800 cursor-pointer hover:brightness-95 transition-all leading-none ${m.status === 'inactive' ? 'italic text-slate-400 opacity-60' : 'text-slate-900 dark:text-slate-100'}`} onClick={() => setExpandedStaff(expandedStaff === m.id ? null : m.id)}><td className="p-1 font-black border-r dark:border-slate-700 sticky left-0 z-10 truncate shadow-[1px_0_0_0_rgba(0,0,0,0.1)]" style={{ backgroundColor: solidWash }}><div className="flex items-center gap-1 bg-transparent"><div className={`w-1.5 h-1.5 rounded-full shrink-0 border border-white shadow-sm`} style={{ backgroundColor: getDeptDotColor(m.department, deptConfigs) }}></div>{expandedStaff === m.id ? <ChevronUp size={10}/> : <ChevronDown size={10}/>}{m.name}</div></td>{results.map((r, i) => (<td key={i} className="p-1 border-r dark:border-slate-700 text-right font-bold" style={{ backgroundColor: rowBg }}>{r.sal+r.adv > 0 ? (r.sal + r.adv).toLocaleString() : '-'}</td>))}<td className="p-1 text-right font-black border-l-2 border-slate-400 dark:border-slate-700 shadow-[-1px_0_0_0_rgba(0,0,0,0.1)] sticky right-0 z-10" style={{ backgroundColor: solidWash }}>฿{totalEarned.toLocaleString()}</td></tr>{expandedStaff === m.id && (<tr><td colSpan={yearsList.length + 2} className="bg-slate-50 dark:bg-slate-800/50 p-0 shadow-inner border-b-2 border-slate-300 dark:border-slate-700"><div className="overflow-x-auto"><table className="w-full text-[9px] uppercase font-black border-collapse table-fixed text-slate-900 dark:text-slate-200"><thead><tr className="bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400 border-b border-slate-400 dark:border-slate-600 text-[8px]"><th className="p-1 text-left border-r border-slate-300 dark:border-slate-600 sticky left-0 bg-inherit w-[16%]">Month</th>{yearsList.map(y => (<th key={y} colSpan={3} className="p-1 text-center border-r border-slate-300 dark:border-slate-600 bg-blue-100/10 text-blue-800 dark:text-blue-300">Year {y}</th>))}<th className="w-[24%]"></th></tr></thead><tbody>{MONTHS.map(mo => { const moData = yearsList.map(y => { const recs = (salaries || []).filter(s => (s.staffName || "").trim().toLowerCase() === (m.name || "").trim().toLowerCase() && isSameMonth(s.month, mo) && Number(s.year) === y); return { sal: recs.filter(s => String(s.type).toLowerCase() === 'salary').reduce((sum, c) => sum + (Number(c.amount) || 0), 0), adv: recs.filter(s => String(s.type).toLowerCase() === 'advance').reduce((sum, c) => sum + (Number(c.amount) || 0), 0), rep: recs.filter(s => String(s.type).toLowerCase() === 'repayment').reduce((sum, c) => sum + (Number(c.amount) || 0), 0) }; }); if (moData.every(d => d.sal + d.adv + d.rep === 0)) return null; return (<tr key={mo} className="border-b border-slate-200 dark:border-slate-800 leading-none"><td className="p-1 font-bold border-r border-slate-300 dark:border-slate-700 sticky left-0 uppercase bg-[rgba(0,0,0,0.05)]">{mo.split('-')[1]}</td>{moData.map((d, idx) => (<Fragment key={idx}><td className="p-0.5 text-right border-r border-slate-50 dark:border-slate-800 bg-[rgba(0,0,0,0.05)]">{d.sal > 0 ? d.sal.toLocaleString() : '-'}</td><td className="p-0.5 text-right border-r border-slate-50 dark:border-slate-800 text-red-600 bg-[rgba(255,0,0,0.05)]">{d.adv > 0 ? d.adv.toLocaleString() : '-'}</td><td className="p-0.5 text-right border-r border-slate-300 dark:border-slate-700 text-green-600 bg-[rgba(0,255,0,0.05)]">{d.rep > 0 ? d.rep.toLocaleString() : '-'}</td></Fragment>))}<td className="bg-inherit"></td></tr>); })}</tbody></table></div></td></tr>)}</Fragment>)})}</tbody><tfoot><tr className="bg-slate-900 text-white font-black text-[10px] uppercase"><td className="p-1 sticky left-0 bg-slate-900 z-10 border-r border-slate-700 shadow-[1px_0_0_0_rgba(0,0,0,0.1)]">Grand Total</td>{yearsList.map(y => { const sum = (staff || []).reduce((acc, m) => { const s = getSummary(m, y); return acc + s.sal + s.adv; }, 0); return <td key={y} className="p-1 text-center border-r border-slate-700">{sum > 0 ? sum.toLocaleString() : '-'}</td>; })}<td className="p-1 text-right sticky right-0 bg-blue-700 z-10 shadow-[-1px_0_0_0_rgba(0,0,0,0.1)] border-l-2 border-blue-800 font-black">฿{(staff || []).reduce((acc, m) => acc + getTotalEarnings(m), 0).toLocaleString()}</td></tr></tfoot></table></div>
+              </div>
+            </div>
+          );
+        }
+
+        function DeptManagerModal({ configs, onClose, onSave }) {
+          const [localConfigs, setLocalConfigs] = useState([...(configs || [])]);
+          const [newName, setNewName] = useState('');
+          const [selectedColor, setSelectedColor] = useState('#3b82f6');
+          const [activePickerIdx, setActivePickerIdx] = useState(null);
+          const handleAdd = () => { if (!newName.trim()) return; const next = [...localConfigs, { name: newName.trim(), color: selectedColor }]; setLocalConfigs(next); onSave(next); setNewName(''); };
+          const handleUpdateName = (idx, val) => { const next = [...localConfigs]; next[idx].name = val; setLocalConfigs(next); onSave(next); };
+          const handleUpdateColor = (idx, hex) => { const next = [...localConfigs]; next[idx].color = hex; setLocalConfigs(next); onSave(next); setActivePickerIdx(null); };
+          const handleRemove = (idx) => { const next = localConfigs.filter((_, i) => i !== idx); setLocalConfigs(next); onSave(next); };
+          
+          const handleMoveUp = (idx) => {
+            if (idx === 0) return;
+            const next = [...localConfigs];
+            [next[idx - 1], next[idx]] = [next[idx], next[idx - 1]];
+            setLocalConfigs(next);
+            onSave(next);
+          };
+          
+          const handleMoveDown = (idx) => {
+            if (idx === localConfigs.length - 1) return;
+            const next = [...localConfigs];
+            [next[idx + 1], next[idx]] = [next[idx], next[idx + 1]];
+            setLocalConfigs(next);
+            onSave(next);
+          };
+
+          return (
+            <Modal title="Manage Departments" onClose={onClose}><div className="space-y-4"><div className="bg-slate-50 dark:bg-slate-800 p-3 rounded border-2 border-slate-200 dark:border-slate-700 space-y-3"><div className="flex flex-col gap-2"><input type="text" className="w-full border-2 border-slate-300 dark:border-slate-700 dark:bg-slate-900 rounded px-2 py-1 font-bold text-sm outline-none" placeholder="Add New Dept..." value={newName} onChange={e => setNewName(e.target.value)} /><div className="flex flex-wrap gap-1">{COLOR_OPTIONS.map(opt => (<button key={opt.hex} type="button" onClick={() => setSelectedColor(opt.hex)} className={`w-5 h-5 rounded border shadow-sm transition-all ${selectedColor === opt.hex ? 'ring-2 ring-blue-500 ring-offset-1 scale-110' : 'hover:scale-105'}`} style={{ backgroundColor: opt.hex }} />))}</div><Button onClick={handleAdd} className="w-full">Create Department</Button></div></div><div className="space-y-2 max-h-64 overflow-auto border dark:border-slate-700 rounded p-1 bg-slate-50/50">{(localConfigs || []).map((c, idx) => (<div key={idx} className="space-y-1"><div className="flex justify-between items-center bg-white dark:bg-slate-800 p-1.5 rounded border border-slate-200 dark:border-slate-700 gap-1"><button onClick={() => setActivePickerIdx(activePickerIdx === idx ? null : idx)} className="w-5 h-5 rounded-full shrink-0 border shadow-sm transition-transform hover:scale-110" style={{ backgroundColor: c.color }} /><input type="text" className="flex-1 bg-transparent font-black text-[11px] uppercase outline-none focus:border-b border-blue-500 w-full min-w-[50px]" value={c.name} onBlur={e => handleUpdateName(idx, e.target.value)} onChange={e => { const n = [...localConfigs]; n[idx].name = e.target.value; setLocalConfigs(n); }} /><div className="flex items-center shrink-0"><button onClick={() => handleMoveUp(idx)} className="text-slate-400 hover:text-blue-500 p-1" title="Move Up"><ArrowUp size={14}/></button><button onClick={() => handleMoveDown(idx)} className="text-slate-400 hover:text-blue-500 p-1" title="Move Down"><ArrowDown size={14}/></button><button onClick={() => handleRemove(idx)} className="text-red-400 hover:text-red-600 p-1 ml-1" title="Delete"><Trash2 size={14}/></button></div></div>{activePickerIdx === idx && (<div className="bg-white dark:bg-slate-900 p-2 rounded border-2 border-blue-500 grid grid-cols-6 gap-1 animate-in slide-in-from-top-1 z-10 shadow-lg">{COLOR_OPTIONS.map(opt => (<button key={opt.hex} type="button" onClick={() => handleUpdateColor(idx, opt.hex)} className="w-full aspect-square rounded border shadow-sm hover:scale-110 transition-transform" style={{ backgroundColor: opt.hex }} />))}</div>)}</div>))}</div></div></Modal>
+          );
+        }
+
+        function BulkPaymentModal({ staff, deptConfigs, salaries, onClose, onSave }) {
+          const [yr, setYr] = useState(new Date().getFullYear());
+          const [mo, setMo] = useState(MONTHS[new Date().getMonth()]);
+          const [dt, setDt] = useState(new Date().toISOString().split('T')[0]);
+          const debtMap = useMemo(() => { const map = {}; (salaries || []).forEach(s => { const name = (s.staffName || "").trim().toLowerCase(); if (!name) return; if (!map[name]) map[name] = 0; const amt = Number(s.amount) || 0; const type = String(s.type).toLowerCase(); if (type === 'advance') map[name] += amt; if (type === 'repayment') map[name] -= amt; }); return map; }, [salaries]);
+          const [rows, setRows] = useState((staff || []).map(s => ({ id: s.id, name: s.name, salary: s.baseSalary||0, advance: 0, repayment: 0, notes: "", included: true, department: s.department })));
+          const update = (id, f, v) => { setRows(prevRows => prevRows.map(r => { if (r.id !== id) return r; let nextRow = { ...r, [f]: v }; if (f === 'repayment') { const member = (staff || []).find(s => s.id === id); const base = member?.baseSalary || 0; nextRow.salary = Math.max(0, base - v); } return nextRow; })); };
+          const totalPayout = useMemo(() => { return (rows || []).reduce((sum, r) => { if (!r.included) return sum; return sum + ((Number(r.salary) || 0) + (Number(r.advance) || 0)); }, 0); }, [rows]);
+          return (
+            <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/30">
+                <div className="bg-white dark:bg-slate-900 w-full max-w-4xl max-h-[90vh] h-auto rounded-xl shadow-2xl overflow-hidden border-2 border-slate-400 dark:border-slate-700 flex flex-col animate-in zoom-in-95 duration-150">
+                    <div className="px-4 py-2 bg-slate-50 dark:bg-slate-800 border-b-2 border-slate-400 dark:border-slate-700 flex justify-between items-center shrink-0">
+                        <div className="flex items-center gap-4"><h3 className="text-[16px] font-black uppercase tracking-widest text-blue-700 dark:text-blue-400">Payroll Entry</h3><div className="flex gap-2"><input type="date" value={dt} onChange={e => setDt(e.target.value)} className="text-[13px] font-black px-2 py-0.5 border-2 border-slate-400 dark:border-slate-700 dark:bg-slate-900 rounded outline-none" /><select value={yr} onChange={e => setYr(parseInt(e.target.value))} className="text-[13px] font-black px-2 py-0.5 border-2 border-slate-300 dark:border-slate-700 dark:bg-slate-900 rounded bg-white dark:bg-slate-800 outline-none">{[2024, 2025, 2026, 2027, 2028].map(y => <option key={y} value={y}>{y}</option>)}</select><select value={mo} onChange={e => setMo(e.target.value)} className="text-[13px] font-black px-2 py-0.5 border-2 border-slate-300 dark:border-slate-700 dark:bg-slate-900 rounded bg-white dark:bg-slate-800 outline-none">{MONTHS.map(m => <option key={m} value={m}>{m}</option>)}</select></div></div>
+                        <button onClick={onClose} className="p-1 hover:bg-slate-200 rounded text-slate-500 transition-colors"><XCircle size={24}/></button>
+                    </div>
+                    <div className="flex-1 overflow-auto">
+                        <table className="w-full text-left border-collapse table-auto">
+                            <thead className="bg-white dark:bg-slate-900 z-10 border-b-2 border-slate-500 font-black text-slate-500 uppercase text-[12px] sticky top-0">
+                                <tr><th className="p-2 w-10 text-center bg-slate-50 dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700"><input type="checkbox" checked={(rows || []).every(r=>r.included)} onChange={e => setRows((rows || []).map(r=>({...r,included:e.target.checked})))} className="w-5 h-4 ml-1"/></th><th className="p-2 min-w-[140px] max-w-[140px] text-[13px] font-black uppercase tracking-tighter bg-slate-50 dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 text-left">Employee</th><th className="p-2 w-24 text-right font-black uppercase tracking-tighter bg-slate-50/50 dark:bg-slate-800/50 text-red-500 border-b border-slate-200 dark:border-slate-700 border-r dark:border-slate-700/50">Owed</th><th className="p-2 w-16 text-center font-black uppercase tracking-tighter bg-slate-100 dark:bg-slate-800/80 text-slate-400 border-b border-slate-200 dark:border-slate-700" title="Salary already paid this month">PAID</th><th className="p-2 w-16 text-center font-black uppercase tracking-tighter bg-slate-100 dark:bg-slate-800/80 text-slate-400 border-b border-slate-200 dark:border-slate-700 border-r dark:border-slate-700/50" title="Repayments already made this month">REPAID</th><th className="p-2 w-20 text-center font-black uppercase tracking-tighter bg-slate-50 dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700">+ Sal</th><th className="p-2 w-20 text-center font-black uppercase tracking-tighter bg-slate-50 dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700">+ Adv</th><th className="p-2 w-20 text-center font-black uppercase tracking-tighter bg-slate-50 dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700">+ Rep</th><th className="p-2 text-[12px] font-black uppercase tracking-tighter bg-slate-50 dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 w-full text-left">Notes</th></tr>
+                            </thead>
+                            <tbody>
+                                {(rows || []).map(r => {
+                                    const rowBg = r.included ? getDeptRowColor(r.department, deptConfigs) : 'transparent';
+                                    const currentOwed = debtMap[(r.name || "").toLowerCase().trim()] || 0;
+                                    const alreadyPaid = (salaries || []).some(s => (s.staffName || "").trim().toLowerCase() === (r.name || "").toLowerCase().trim() && Number(s.year) === Number(yr) && isSameMonth(s.month, mo) && String(s.type).toLowerCase() === 'salary');
+                                    const thisMonthRecs = (salaries || []).filter(s => (s.staffName || "").trim().toLowerCase() === (r.name || "").toLowerCase().trim() && Number(s.year) === Number(yr) && isSameMonth(s.month, mo));
+                                    const prevSal = thisMonthRecs.filter(s => String(s.type).toLowerCase() === 'salary').reduce((a,c) => a + (Number(c.amount) || 0), 0);
+                                    const prevRep = thisMonthRecs.filter(s => String(s.type).toLowerCase() === 'repayment').reduce((a,c) => a + (Number(c.amount) || 0), 0);
+                                    return (
+                                        <tr key={r.id} className={`${r.included?'':'opacity-30'} border-b border-slate-100 dark:border-slate-800 transition-colors leading-none`}><td className="p-1 text-center align-middle" style={{ backgroundColor: rowBg }}><input type="checkbox" checked={r.included} onChange={e => update(r.id,'included',e.target.checked)} className="w-5 h-4 ml-1 cursor-pointer"/></td><td className="p-1 min-w-[140px] max-w-[140px] font-black text-[15px] text-slate-900 dark:text-slate-100 align-middle" style={{ backgroundColor: rowBg }}><div className="flex items-center gap-1.5 overflow-visible">{alreadyPaid && (<div className="group relative shrink-0"><AlertTriangle size={15} className="text-red-600 animate-pulse cursor-help" /><div className="absolute left-0 bottom-full mb-1 hidden group-hover:block bg-red-600 text-white text-[11px] px-2 py-1 rounded shadow-lg whitespace-nowrap z-50 font-black uppercase font-sans">Paid {mo}</div></div>)}<span className="truncate">{String(r.name)}</span></div></td><td className="p-1 text-right font-black text-[13px] text-red-500/80 align-middle whitespace-nowrap pr-3 border-r dark:border-slate-700/30" style={{ backgroundColor: rowBg }}>฿{currentOwed.toLocaleString()}</td><td className="p-1 text-center font-bold text-[12px] text-slate-700 dark:text-slate-300 align-middle" style={{ backgroundColor: rowBg }}>{prevSal > 0 ? prevSal.toLocaleString() : '-'}</td><td className="p-1 text-center font-bold text-[12px] text-slate-700 dark:text-slate-300 align-middle border-r dark:border-slate-700/30" style={{ backgroundColor: rowBg }}>{prevRep > 0 ? prevRep.toLocaleString() : '-'}</td><td className="p-1 text-center align-middle" style={{ backgroundColor: rowBg }}><input type="number" className="w-16 border border-slate-300 dark:border-slate-700 dark:bg-slate-900 rounded font-black text-[15px] text-center outline-none focus:border-blue-500" value={r.salary} onChange={e => update(r.id,'salary',parseFloat(e.target.value)||0)} /></td><td className="p-1 text-center align-middle" style={{ backgroundColor: rowBg }}><input type="number" className="w-16 border border-slate-300 dark:border-slate-700 dark:bg-slate-900 rounded font-black text-[15px] text-center text-red-600 outline-none focus:border-blue-500" value={r.advance} onChange={e => update(r.id,'advance',parseFloat(e.target.value)||0)} /></td><td className="p-1 text-center align-middle" style={{ backgroundColor: rowBg }}><input type="number" className="w-16 border border-slate-300 dark:border-slate-700 dark:bg-slate-900 rounded font-black text-[15px] text-center text-green-600 outline-none focus:border-blue-500" value={r.repayment} onChange={e => update(r.id,'repayment',parseFloat(e.target.value)||0)} /></td><td className="p-1 align-middle w-full" style={{ backgroundColor: rowBg }}><input type="text" className="w-full border border-slate-200 dark:border-slate-800 dark:bg-slate-800 px-2 py-1.5 rounded text-[14px] font-medium outline-none" placeholder="..." value={r.notes} onChange={e => update(r.id,'notes',e.target.value)} /></td></tr>
+                                    )})}
+                            </tbody>
+                        </table>
+                    </div>
+                    <div className="p-3 bg-slate-50 dark:bg-slate-800 border-t-2 border-slate-400 dark:border-slate-700 flex justify-between items-center shrink-0 shadow-inner">
+                        <div className="flex flex-col"><span className="text-[10px] font-black uppercase text-slate-400 tracking-tighter">Total Net Payout</span><span className="text-[17px] font-black text-blue-600">฿{totalPayout.toLocaleString()}</span></div>
+                        <div className="flex gap-3"><Button variant="outline" onClick={onClose} className="px-6 py-2 uppercase font-black tracking-tight text-[13px]">Cancel</Button><Button onClick={() => onSave(rows, yr, mo, dt, totalPayout)} className="px-8 py-2 text-[13px] font-black uppercase tracking-widest bg-blue-700">Submit Payroll</Button></div>
+                    </div>
+                </div>
+            </div>
+          ); 
+        }
 
         function App() {
           const [user, setUser] = useState(null);
@@ -168,7 +496,7 @@
           const [loading, setLoading] = useState(true);
           const [showInactive, setShowInactive] = useState(true);
           const [collapseExStaff, setCollapseExStaff] = useState(false);
-          const [groupHistoryByBatch, setGroupHistoryByBatch] = useState(true);
+          const [groupHistoryByBatch, setGroupHistoryByBatch] = useState(false);
           
           const [confirmModal, setConfirmModal] = useState({ open: false, title: '', message: '', onConfirm: null });
           const [logFilter, setLogFilter] = useState("All");
@@ -184,7 +512,7 @@
           const [isDeptModalOpen, setIsDeptModalOpen] = useState(false);
           const [editItem, setEditItem] = useState(null);
 
-          const deptNames = useMemo(() => deptConfigs.map(c => c.name), [deptConfigs]);
+          const deptNames = useMemo(() => (deptConfigs || []).map(c => c.name), [deptConfigs]);
 
           useEffect(() => {
             const initAuth = async () => {
@@ -211,14 +539,14 @@
           }, [user]);
 
           const years = useMemo(() => {
-            const uniqueYears = [...new Set(salaries.map(s => Number(s.year)))].sort((a,b) => b-a);
+            const uniqueYears = [...new Set((salaries || []).map(s => Number(s.year)))].sort((a,b) => b-a);
             const currentYear = new Date().getFullYear();
             if (!uniqueYears.includes(currentYear)) uniqueYears.push(currentYear);
             return uniqueYears.sort((a,b) => b-a);
           }, [salaries]);
 
-          const staffMap = useMemo(() => Object.fromEntries(staff.map(s => [(s.name || "").trim(), s])), [staff]);
-          const sortedStaff = useMemo(() => [...staff].sort((a, b) => getSortScore(a, deptNames) - getSortScore(b, deptNames)), [staff, deptNames]);
+          const staffMap = useMemo(() => Object.fromEntries((staff || []).map(s => [(s.name || "").trim(), s])), [staff]);
+          const sortedStaff = useMemo(() => [...(staff || [])].sort((a, b) => getSortScore(a, deptNames) - getSortScore(b, deptNames)), [staff, deptNames]);
 
           const ledgerData = useMemo(() => {
             const currentYear = Number(selectedCalendarYear);
@@ -226,25 +554,25 @@
               .filter(s => (deptFilter === 'All' || s.department === deptFilter))
               .map(member => {
                 const memberName = (member.name || "").trim().toLowerCase();
-                const memberSalaries = salaries.filter(s => (s.staffName || "").trim().toLowerCase() === memberName);
+                const memberSalaries = (salaries || []).filter(s => (s.staffName || "").trim().toLowerCase() === memberName);
                 const payoutRow = { ...member, type: 'payout', monthlyActivity: {} };
                 const loanRow = { ...member, type: 'loan', monthlyActivity: {} };
                 const previousBalance = memberSalaries
                     .filter(s => Number(s.year) < currentYear)
                     .reduce((sum, r) => {
                         const t = String(r.type).toLowerCase();
-                        if (t === 'advance') return sum + Number(r.amount);
-                        if (t === 'repayment') return sum - Number(r.amount);
+                        if (t === 'advance') return sum + (Number(r.amount) || 0);
+                        if (t === 'repayment') return sum - (Number(r.amount) || 0);
                         return sum;
                     }, 0);
                 loanRow.balanceForward = previousBalance;
                 MONTHS.forEach(m => {
                   const monthRecords = memberSalaries.filter(s => isSameMonth(s.month, m) && Number(s.year) === currentYear);
-                  const pAmt = monthRecords.filter(r => ['salary', 'advance'].includes(String(r.type).toLowerCase())).reduce((a, c) => a + Number(c.amount), 0);
+                  const pAmt = monthRecords.filter(r => ['salary', 'advance'].includes(String(r.type).toLowerCase())).reduce((a, c) => a + (Number(c.amount) || 0), 0);
                   const lAmt = monthRecords.reduce((a, c) => {
                     const t = String(c.type).toLowerCase();
-                    if (t === 'advance') return a + Number(c.amount);
-                    if (t === 'repayment') return a - Number(c.amount);
+                    if (t === 'advance') return a + (Number(c.amount) || 0);
+                    if (t === 'repayment') return a - (Number(c.amount) || 0);
                     return a;
                   }, 0);
                   payoutRow[m] = pAmt; loanRow[m] = lAmt;
@@ -274,9 +602,9 @@
           }, [ledgerData]);
 
           const filteredLog = useMemo(() => {
-            let result = salaries.map(s => ({
+            let result = (salaries || []).map(s => ({
                 ...s,
-                period: `${s.year}-${String(s.month).split('-')[1]}`
+                period: s.month && s.year ? `${s.year}-${String(s.month).split('-')[1]}` : 'Unknown'
             }));
             if (logFilter !== "All") {
               if (logFilter.startsWith("DEPT:")) {
@@ -289,13 +617,32 @@
             }
             if (logPeriodFilter !== "All") result = result.filter(s => s.period === logPeriodFilter);
             
+            const batchTimes = {};
+            if (groupHistoryByBatch) {
+                result.forEach(s => {
+                    if (s.batchId) {
+                        if (!batchTimes[s.batchId] || (s.timestamp && s.timestamp > batchTimes[s.batchId])) {
+                            batchTimes[s.batchId] = s.timestamp;
+                        }
+                    }
+                });
+            }
+            
             result.sort((a, b) => {
-              if (groupHistoryByBatch && (a.batchId || 'z') !== (b.batchId || 'z')) {
-                return (b.timestamp || "").localeCompare(a.timestamp || "");
+              if (groupHistoryByBatch) {
+                const batchA = a.batchId || a.id;
+                const batchB = b.batchId || b.id;
+                if (batchA !== batchB) {
+                  const timeA = a.batchId ? batchTimes[a.batchId] : a.timestamp;
+                  const timeB = b.batchId ? batchTimes[b.batchId] : b.timestamp;
+                  const timeDiff = (timeB || "").localeCompare(timeA || "");
+                  if (timeDiff !== 0) return timeDiff;
+                  return batchB.localeCompare(batchA);
+                }
               }
               let valA = a[logSort.key];
               let valB = b[logSort.key];
-              if (logSort.key === 'amount') { valA = Number(valA); valB = Number(valB); }
+              if (logSort.key === 'amount') { valA = Number(valA) || 0; valB = Number(valB) || 0; }
               if (logSort.key === 'staffName') {
                   const memberA = staffMap[(a.staffName || "").trim()];
                   const memberB = staffMap[(b.staffName || "").trim()];
@@ -304,7 +651,7 @@
               }
               if (valA < valB) return logSort.dir === 'asc' ? -1 : 1;
               if (valA > valB) return logSort.dir === 'asc' ? 1 : -1;
-              return 0;
+              return (a.id || "").localeCompare(b.id || "");
             });
             return result;
           }, [salaries, logFilter, logPeriodFilter, logSort, staffMap, deptNames, groupHistoryByBatch]);
@@ -400,7 +747,7 @@
                           <tr><th className="px-2 py-1.5 uppercase bg-[#e8eaed] dark:bg-slate-800">Name</th><th className="px-2 py-1.5 uppercase bg-[#e8eaed] dark:bg-slate-800">Dept</th><th className="px-2 py-1.5 text-right uppercase bg-[#e8eaed] dark:bg-slate-800">Base ฿</th><th className="px-2 py-1.5 text-center uppercase bg-[#e8eaed] dark:bg-slate-800">Act</th><th className="px-2 py-1.5 bg-[#e8eaed] dark:bg-slate-800"></th></tr>
                         </thead>
                         <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                          {sortedStaff.map(member => {
+                          {(sortedStaff || []).map(member => {
                             if (!showInactive && member.status === 'inactive') return null;
                             const rowBg = getDeptRowColor(member.department, deptConfigs);
                             return (
@@ -484,260 +831,6 @@
               )}
             </div>
           );
-        }
-
-        // --- Restored UI & Data Components ---
-
-        function Button({ children, onClick, variant = 'primary', size = 'md', className = "", type = "button" }) {
-          return (<button type={type} onClick={onClick} className={`${variant === 'primary' ? 'bg-blue-600 text-white shadow-sm hover:bg-blue-700' : 'border-2 border-slate-400 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800'} ${size === 'sm' ? 'px-2 py-0.5 text-xs' : 'px-3 py-1.5 text-sm'} rounded font-black uppercase tracking-tighter transition-all flex items-center gap-1 active:scale-95 ${className}`}>{children}</button>);
-        }
-
-        function Tab({ active, onClick, icon, label }) {
-          return (<button onClick={onClick} className={`flex items-center gap-1.5 px-3 py-2 text-[10px] font-black uppercase tracking-widest border-b-2 transition-all flex-1 justify-center whitespace-nowrap ${active ? 'border-blue-600 text-blue-600 bg-blue-50/20 dark:bg-blue-900/20 shadow-inner' : 'border-transparent text-slate-400 hover:text-slate-600 dark:hover:text-slate-300'}`}>{icon}<span>{label}</span></button>);
-        }
-
-        function Modal({ title, children, onClose }) {
-          return (<div className="fixed inset-0 z-[100] flex items-center justify-center p-2 bg-slate-950/80 backdrop-blur-sm"><div className="bg-white dark:bg-slate-900 w-full max-w-sm rounded-lg shadow-2xl overflow-hidden border-2 border-slate-400 dark:border-slate-700 animate-in zoom-in-95 duration-150 text-slate-900 dark:text-slate-100"><div className="px-4 py-2 bg-slate-50 dark:bg-slate-800 border-b border-slate-400 dark:border-slate-700 flex justify-between items-center"><h3 className="text-[10px] font-black uppercase tracking-widest text-slate-600 dark:text-slate-400">{title}</h3><button onClick={onClose} className="p-1 hover:bg-slate-200 dark:hover:bg-slate-700 rounded transition-colors text-slate-500"><XCircle size={18}/></button></div><div className="p-4">{children}</div></div></div>);
-        }
-
-        function FilterDropdown({ label, value, onChange, staff, deptNames }) {
-          return (
-            <div className="flex flex-col gap-0.5 text-slate-900 dark:text-white"><label className="text-[8px] font-black uppercase text-slate-500 pl-1 tracking-widest uppercase">{label}</label><select value={value} onChange={e => onChange(e.target.value)} className="w-full px-1.5 py-1 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded font-black text-xs outline-none focus:border-blue-500 shadow-sm text-slate-900 dark:text-white"><option value="All">Show All</option><optgroup label="Departments" className="dark:bg-slate-900">{deptNames.map(d => <option key={String(d)} value={`DEPT:${String(d)}`}>{String(d)}</option>)}</optgroup><optgroup label="Individuals" className="dark:bg-slate-900">{staff.map(s => <option key={s.id} value={`STAFF:${s.name}`}>{s.name}</option>)}</optgroup></select></div>
-          );
-        }
-
-        function CalendarTable({ data, totals, isLoanTable = false, deptConfigs, collapseExStaff }) {
-          const processedRows = useMemo(() => {
-            if (!collapseExStaff) return data;
-            const activeRows = data.filter(r => r.status !== 'inactive');
-            const inactiveRows = data.filter(r => r.status === 'inactive');
-            if (inactiveRows.length === 0) return activeRows;
-            const exStaffRow = { name: "Ex-Staff", department: "Other", status: "inactive", monthlyActivity: {}, rowTotal: 0, balanceForward: 0 };
-            MONTHS.forEach(m => {
-              const sum = inactiveRows.reduce((acc, row) => acc + (row[m] || 0), 0);
-              exStaffRow[m] = sum;
-              exStaffRow.monthlyActivity[m] = inactiveRows.some(row => row.monthlyActivity?.[m]);
-            });
-            if (isLoanTable) exStaffRow.balanceForward = inactiveRows.reduce((acc, row) => acc + (row.balanceForward || 0), 0);
-            exStaffRow.rowTotal = inactiveRows.reduce((acc, row) => acc + (row.rowTotal || 0), 0);
-            return [...activeRows, exStaffRow];
-          }, [data, collapseExStaff, isLoanTable]);
-
-          return (
-            <div className="overflow-auto bg-white dark:bg-slate-900 rounded border-2 border-slate-400 dark:border-slate-700 shadow-sm scroll-smooth">
-              <table className="w-full text-[13px] border-separate border-spacing-0">
-                <thead className="sticky top-0 z-20">
-                  <tr className="font-black uppercase text-slate-600 dark:text-slate-300 text-[10px]">
-                    <th className="p-1 text-left sticky left-0 border-b-2 border-r-2 border-slate-400 dark:border-slate-700 min-w-[100px] z-30 bg-[#e8eaed] dark:bg-slate-800">Staff</th>
-                    {isLoanTable && <th className="p-1 border-b-2 border-r border-slate-300 dark:border-slate-700 min-w-[50px] text-center uppercase bg-[rgba(0,0,0,0.15)]">Prev</th>}
-                    {MONTHS.map(m => <th key={m} className="p-1 border-b-2 border-r border-slate-300 dark:border-slate-700 min-w-[50px] text-center uppercase bg-[rgba(0,0,0,0.15)]">{(m.split('-')[1]).toUpperCase()}</th>)}
-                    <th className="p-1 text-right sticky right-0 border-b-2 border-l-2 border-slate-400 dark:border-slate-700 min-w-[85px] z-30 shadow-[-2px_0_4px_rgba(0,0,0,0.05)] bg-[#e8eaed] dark:bg-slate-800">Total</th>
-                  </tr>
-                </thead>
-                <tbody>{processedRows.map((row, idx) => {
-                  const rowBg = getDeptRowColor(row.department, deptConfigs);
-                  const solidWash = getDeptSolidWash(row.department, deptConfigs);
-                  return (
-                    <tr key={idx} className={`${row.status==='inactive'?'italic':''} leading-none transition-colors`}>
-                      <td className="p-1 font-black sticky left-0 border-b border-r-2 border-slate-400 dark:border-slate-700 whitespace-nowrap z-10 shadow-[1px_0_0_0_rgba(0,0,0,0.1)]" style={{ backgroundColor: solidWash }}><div className="flex items-center gap-1 bg-transparent"><div className={`w-1.5 h-1.5 rounded-full shrink-0 border border-white/50 shadow-sm`} style={{ backgroundColor: getDeptDotColor(row.department, deptConfigs) }}></div><span className={row.status === 'inactive' ? 'text-slate-400' : 'text-slate-900 dark:text-slate-100'}>{row.name}</span></div></td>
-                      {isLoanTable && <td className="p-1 text-center border-b border-r border-slate-300 dark:border-slate-800 font-bold text-slate-500" style={{ backgroundColor: rowBg }}>{row.balanceForward !== 0 ? Math.abs(row.balanceForward).toLocaleString() : '-'}</td>}
-                      {MONTHS.map(m => { const val = row[m] || 0; const hasActivity = row.monthlyActivity?.[m]; return (<td key={m} className={`p-1 text-center border-b border-r border-slate-300 dark:border-slate-800 font-black ${row.status === 'inactive' ? 'text-slate-400' : val > 0 ? (isLoanTable ? 'text-red-600' : 'text-slate-900 dark:text-slate-100') : val < 0 ? 'text-green-600' : 'text-slate-300 dark:text-slate-700'}`} style={{ backgroundColor: rowBg }}>{val !== 0 ? Math.abs(val).toLocaleString() : (hasActivity ? '0' : '-')}</td>); })}
-                      <td className="p-1 text-right font-black border-b border-slate-400 dark:border-slate-700 sticky right-0 z-10 border-l-2 shadow-[-1px_0_0_0_rgba(0,0,0,0.1)]" style={{ backgroundColor: solidWash }}>{row.rowTotal.toLocaleString()}</td>
-                    </tr>
-                  )})}
-                </tbody>
-                <tfoot className="sticky bottom-0 z-20"><tr className="bg-slate-900 text-white font-black uppercase text-[10px]"><td className="p-1 sticky left-0 bg-slate-900 z-10 border-r-2 border-slate-700 uppercase shadow-[1px_0_0_0_rgba(0,0,0,0.1)]">Grand Totals</td>{isLoanTable && <td className="p-1 text-center border-r border-slate-700">{totals.balanceForward !== 0 ? Math.abs(totals.balanceForward).toLocaleString() : '-'}</td>}{MONTHS.map(m => <td key={m} className="p-1 text-center border-r border-slate-700">{totals[m]!==0?Math.abs(totals[m]).toLocaleString() : '-'}</td>)}<td className="p-1 text-right sticky right-0 bg-blue-700 z-10 shadow-[-2px_0_10px_rgba(0,0,0,0.4)] border-l-2 border-blue-800 font-black text-[11px]">฿{totals.rowTotal.toLocaleString()}</td></tr></tfoot>
-              </table>
-            </div>
-          );
-        }
-
-        function HistoryView({ filteredLog, staffMap, deptConfigs, logSort, setLogSort, setEditItem, setIsEditModalOpen, logFilter, setLogFilter, sortedStaff, deptNames, salaries, logPeriodFilter, setLogPeriodFilter, groupHistoryByBatch, setGroupHistoryByBatch }) {
-          const batches = useMemo(() => {
-            if (!groupHistoryByBatch) return [{ id: 'all', items: filteredLog, total: null }];
-            const groups = [];
-            let currentGroup = null;
-            filteredLog.forEach(log => {
-              const batchId = log.batchId || (log.timestamp?.split('T')[0] + '-virtual');
-              if (!currentGroup || currentGroup.id !== batchId) {
-                currentGroup = { id: batchId, items: [], total: 0, date: log.timestamp, isVirtual: !log.batchId };
-                groups.push(currentGroup);
-              }
-              currentGroup.items.push(log);
-              if (['salary', 'advance'].includes(String(log.type).toLowerCase())) {
-                currentGroup.total += Number(log.amount);
-              }
-            });
-            return groups;
-          }, [filteredLog, groupHistoryByBatch]);
-
-          return (
-            <div className="h-full flex flex-col p-1.5 space-y-2 text-slate-900">
-              <div className="flex flex-col gap-2 shrink-0 sticky top-0 z-40 bg-slate-50 dark:bg-slate-950 pb-1 border-b dark:border-slate-800">
-                <div className="grid grid-cols-2 gap-2">
-                  <FilterDropdown label="Who:" value={logFilter} onChange={setLogFilter} staff={sortedStaff} deptNames={deptNames} />
-                  <div className="flex flex-col gap-0.5">
-                    <label className="text-[8px] font-black uppercase text-slate-500 pl-1 tracking-widest uppercase">When:</label>
-                    <select value={logPeriodFilter} onChange={e => setLogPeriodFilter(e.target.value)} className="w-full px-1.5 py-1 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded font-black text-xs outline-none text-slate-900 dark:text-white">
-                      <option value="All">All Periods</option>
-                      {[...new Set(salaries.map(s => `${s.year}-${s.month}`))].sort().reverse().map(p => `${p.split('-')[0]}-${p.split('-')[2]}`).filter((v, i, a) => a.indexOf(v) === i).map(p => <option key={p} value={p}>{p}</option>)}
-                    </select>
-                  </div>
-                </div>
-                <div className="flex items-center gap-2 pl-1 bg-blue-600/10 p-1.5 rounded border border-blue-600/20">
-                  <input type="checkbox" id="groupByBatchShort" checked={groupHistoryByBatch} onChange={e => setGroupHistoryByBatch(e.target.checked)} className="w-4 h-4 cursor-pointer" />
-                  <label htmlFor="groupByBatchShort" className="text-[10px] font-black uppercase text-blue-800 dark:text-blue-300 cursor-pointer">BATCH MODE</label>
-                </div>
-              </div>
-              <div className="flex-1 overflow-auto bg-white dark:bg-slate-900 rounded border-2 border-slate-400 dark:border-slate-700">
-                <table className="w-full text-left border-collapse text-[11px]">
-                  <thead className="sticky top-0 z-10 text-[9px] uppercase font-black text-slate-600 dark:text-slate-300">
-                    <tr>
-                      <th className="p-1 cursor-pointer bg-[#e8eaed] dark:bg-slate-800" onClick={() => setLogSort(prev => ({key:'timestamp', dir: prev.dir === 'asc' ? 'desc' : 'asc'}))}>Date <ArrowUpDown size={7} className="inline"/></th>
-                      <th className="p-1 cursor-pointer bg-[#e8eaed] dark:bg-slate-800" onClick={() => setLogSort(prev => ({key:'staffName', dir: prev.dir === 'asc' ? 'desc' : 'asc'}))}>Staff <ArrowUpDown size={7} className="inline"/></th>
-                      <th className="p-1 cursor-pointer bg-[#e8eaed] dark:bg-slate-800" onClick={() => setLogSort(prev => ({key:'period', dir: prev.dir === 'asc' ? 'desc' : 'asc'}))}>Period <ArrowUpDown size={7} className="inline"/></th>
-                      <th className="p-1 cursor-pointer bg-[#e8eaed] dark:bg-slate-800" onClick={() => setLogSort(prev => ({key:'type', dir: prev.dir === 'asc' ? 'desc' : 'asc'}))}>Type <ArrowUpDown size={7} className="inline"/></th>
-                      <th className="p-1 text-right cursor-pointer bg-[#e8eaed] dark:bg-slate-800" onClick={() => setLogSort(prev => ({key:'amount', dir: prev.dir === 'asc' ? 'desc' : 'asc'}))}>Amount <ArrowUpDown size={7} className="inline"/></th>
-                      <th className="p-1 bg-[#e8eaed] dark:bg-slate-800">Notes</th>
-                      <th className="p-1 bg-[#e8eaed] dark:bg-slate-800"></th>
-                    </tr>
-                  </thead>
-                  <tbody className="dark:text-slate-200">
-                    {batches.map(batch => (
-                      <Fragment key={batch.id}>
-                        {groupHistoryByBatch && (
-                          <tr className="bg-blue-600/20 dark:bg-blue-900/40 border-y border-blue-400 dark:border-blue-800">
-                            <td colSpan={7} className="p-1.5 px-3">
-                              <div className="flex items-center justify-between">
-                                <div className="flex items-center gap-2 text-blue-700 dark:text-blue-300 font-black text-[10px] uppercase tracking-wider"><Layers size={12}/> {batch.isVirtual ? `Virtual Batch: ${formatDisplayDate(batch.date)}` : `System Batch: Transaction`}</div>
-                                <div className="font-black text-blue-600 dark:text-blue-400">Transfer Total: ฿{batch.total?.toLocaleString() || '-'}</div>
-                              </div>
-                            </td>
-                          </tr>
-                        )}
-                        {batch.items.map(s => {
-                          const member = staffMap[(s.staffName || "").trim()];
-                          const rowBg = getDeptRowColor(member?.department, deptConfigs);
-                          return (
-                            <tr key={s.id} className={`border-b border-slate-200 dark:border-slate-800 transition-colors ${member?.status === 'inactive' ? 'opacity-60 italic' : ''}`}>
-                              <td className="p-1 whitespace-nowrap" style={{ backgroundColor: rowBg }}>{formatDisplayDate(s.timestamp)}</td>
-                              <td className="p-1 font-black truncate max-w-[80px]" style={{ backgroundColor: rowBg }}>{String(s.staffName)}</td>
-                              <td className="p-1 font-bold" style={{ backgroundColor: rowBg }}>{s.period}</td>
-                              <td className="p-1" style={{ backgroundColor: rowBg }}><span className={`px-1.5 py-0.5 rounded text-[8px] font-black uppercase ${String(s.type).toLowerCase()==='advance'?'text-red-600 bg-white/70':String(s.type).toLowerCase()==='repayment'?'text-green-600 bg-white/70':'text-slate-500'}`}>{String(s.type)}</span></td>
-                              <td className={`p-1 text-right font-black ${String(s.type).toLowerCase()==='advance'?'text-red-600':String(s.type).toLowerCase()==='repayment'?'text-green-600':''}`} style={{ backgroundColor: rowBg }}>฿{Number(s.amount).toLocaleString()}</td>
-                              <td className="p-1 italic text-slate-500 dark:text-slate-400 text-[10px] truncate max-w-[100px]" style={{ backgroundColor: rowBg }}>{s.notes || '-'}</td>
-                              <td className="p-1 text-right" style={{ backgroundColor: rowBg }}><div className="flex gap-1 justify-end"><button onClick={() => { setEditItem(s); setIsEditModalOpen(true); }} className="text-slate-400 hover:text-blue-500 p-0.5"><Edit2 size={12}/></button><button onClick={() => deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'salaries', s.id))} className="text-slate-300 hover:text-red-500 p-0.5"><Trash2 size={12}/></button></div></td>
-                            </tr>
-                          );
-                        })}
-                      </Fragment>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          );
-        }
-
-        function DebtLedger({ salaries, staff, filter, sort, deptConfigs, deptNames }) {
-          const ledgerData = useMemo(() => staff.map(m => {
-              const recs = salaries.filter(s => (s.staffName || "").trim().toLowerCase() === (m.name || "").trim().toLowerCase());
-              const advances = recs.filter(s => String(s.type).toLowerCase() === 'advance').reduce((s, c) => s + Number(c.amount), 0);
-              const repayments = recs.filter(s => String(s.type).toLowerCase() === 'repayment').reduce((s, c) => s + Number(c.amount), 0);
-              return { ...m, advances, repayments, balance: advances - repayments };
-            }).filter(m => { 
-                if (filter === "All") return m.balance !== 0 || m.status === 'active'; 
-                if (filter.startsWith("DEPT:")) return m.department === filter.replace("DEPT:", ""); 
-                if (filter.startsWith("STAFF:")) return m.name === filter.replace("STAFF:", ""); 
-                return true; 
-            }).sort((a, b) => { 
-                if (sort.key === 'balance') return b.balance - a.balance; 
-                if (sort.key === 'advances') return b.advances - a.advances; 
-                if (sort.key === 'name') {
-                    const scoreA = getSortScore(a, deptNames);
-                    const scoreB = getSortScore(b, deptNames);
-                    return scoreA - scoreB;
-                }
-                return (a.name || "").localeCompare(b.name || ""); 
-            }), [salaries, staff, filter, sort, deptNames]);
-          const [expandedId, setExpandedId] = useState(null);
-          return (
-            <table className="w-full text-left border-separate border-spacing-0">
-              <thead className="font-black uppercase border-b-2 border-slate-400 dark:border-slate-700 sticky top-0 z-20 text-[10px] text-slate-600 dark:text-slate-300">
-                <tr><th className="p-2 border-r dark:border-slate-700 bg-[rgba(0,0,0,0.15)]">Staff Member</th><th className="p-2 border-r dark:border-slate-700 text-right text-red-500 bg-[rgba(0,0,0,0.15)]">All-Time Advances</th><th className="p-2 border-r dark:border-slate-700 text-right text-green-600 bg-[rgba(0,0,0,0.15)]">All-Time Repaid</th><th className="p-2 text-right bg-[rgba(0,0,0,0.15)]">Owed Balance</th></tr>
-              </thead>
-              <tbody>{ledgerData.map(m => {
-                  const rowBg = getDeptRowColor(m.department, deptConfigs);
-                  return (
-                    <Fragment key={m.id}>
-                      <tr onClick={() => setExpandedId(expandedId === m.id ? null : m.id)} className={`border-b border-slate-100 dark:border-slate-800 cursor-pointer hover:brightness-95 transition-all leading-none ${m.status === 'inactive' ? 'italic text-slate-400 opacity-60' : 'text-slate-900 dark:text-slate-100'}`}>
-                        <td className="p-2 font-black border-r dark:border-slate-700 flex items-center gap-2" style={{ backgroundColor: rowBg }}><div className="w-2 h-2 rounded-full border border-white/50 shadow-sm" style={{ backgroundColor: getDeptDotColor(m.department, deptConfigs) }}></div>{m.name}{expandedId === m.id ? <ChevronUp size={12}/> : <ChevronDown size={12}/>}</td>
-                        <td className="p-2 border-r dark:border-slate-700 text-right font-bold text-red-500/70" style={{ backgroundColor: rowBg }}>฿{m.advances.toLocaleString()}</td>
-                        <td className="p-2 border-r dark:border-slate-700 text-right font-bold text-green-600/70" style={{ backgroundColor: rowBg }}>฿{m.repayments.toLocaleString()}</td>
-                        <td className={`p-2 text-right font-black border-l-2 border-slate-400 dark:border-slate-700 ${m.balance > 0 ? 'text-red-700' : 'text-slate-300 dark:text-slate-600'}`} style={{ backgroundColor: rowBg }}>฿{m.balance.toLocaleString()}</td>
-                      </tr>
-                      {expandedId === m.id && (<tr><td colSpan={4} className="bg-slate-100 dark:bg-slate-800 p-0 shadow-inner border-b-2 border-slate-300 dark:border-slate-700"><div className="p-1 px-4 bg-slate-900 text-[8px] text-slate-400 font-black uppercase tracking-widest">Historical Debt Ledger Flow</div><table className="w-full text-[10px] border-collapse bg-white dark:bg-slate-900"><thead className="bg-slate-50 dark:bg-slate-800 text-[9px] font-black border-b border-slate-300 dark:border-slate-700 text-slate-500 dark:text-slate-400 uppercase"><tr><th className="p-1 text-left px-4">Date</th><th className="p-1 text-right">Type</th><th className="p-1 text-right">Amount</th><th className="p-1 text-right px-4">Running Total</th></tr></thead><tbody>{(() => { let runningBal = 0; const staffRecs = salaries.filter(s => (s.staffName || "").trim().toLowerCase() === (m.name || "").trim().toLowerCase()).filter(s => ['advance', 'repayment'].includes(String(s.type).toLowerCase())).sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp)); if (staffRecs.length === 0) return <tr><td colSpan={4} className="p-4 text-center text-slate-300 dark:text-slate-600 italic">No historical debt entries.</td></tr>; return staffRecs.map((s, idx) => { const amt = Number(s.amount); const t = String(s.type).toLowerCase(); runningBal += (t === 'advance' ? amt : -amt); return (<tr key={idx} className="border-b border-slate-50 dark:border-slate-800/50"><td className="p-1 px-4 font-bold text-slate-500 dark:text-slate-400">{formatDisplayDate(s.timestamp)}</td><td className={`p-1 text-right text-[8px] font-black uppercase ${t === 'advance' ? 'text-red-500' : 'text-green-600'}`}>{String(s.type)}</td><td className="p-1 text-right font-black dark:text-slate-200">฿{amt.toLocaleString()}</td><td className={`p-1 text-right px-4 font-black bg-slate-50 dark:bg-slate-800/20 ${runningBal > 0 ? 'text-red-600' : 'text-slate-400 dark:text-slate-500'}`}>฿{runningBal.toLocaleString()}</td></tr>); }); })()}</tbody></table></td></tr>)}</Fragment>
-                  )})}
-              </tbody>
-            </table>
-          );
-        }
-
-        function DeptManagerModal({ configs, onClose, onSave }) {
-          const [localConfigs, setLocalConfigs] = useState([...configs]);
-          const [newName, setNewName] = useState('');
-          const [selectedColor, setSelectedColor] = useState('#3b82f6');
-          const [activePickerIdx, setActivePickerIdx] = useState(null);
-          const handleAdd = () => { if (!newName.trim()) return; const next = [...localConfigs, { name: newName.trim(), color: selectedColor }]; setLocalConfigs(next); onSave(next); setNewName(''); };
-          const handleUpdateName = (idx, val) => { const next = [...localConfigs]; next[idx].name = val; setLocalConfigs(next); onSave(next); };
-          const handleUpdateColor = (idx, hex) => { const next = [...localConfigs]; next[idx].color = hex; setLocalConfigs(next); onSave(next); setActivePickerIdx(null); };
-          const handleRemove = (idx) => { const next = localConfigs.filter((_, i) => i !== idx); setLocalConfigs(next); onSave(next); };
-          return (
-            <Modal title="Manage Departments" onClose={onClose}><div className="space-y-4"><div className="bg-slate-50 dark:bg-slate-800 p-3 rounded border-2 border-slate-200 dark:border-slate-700 space-y-3"><div className="flex flex-col gap-2"><input type="text" className="w-full border-2 border-slate-300 dark:border-slate-700 dark:bg-slate-900 rounded px-2 py-1 font-bold text-sm outline-none" placeholder="Add New Dept..." value={newName} onChange={e => setNewName(e.target.value)} /><div className="flex flex-wrap gap-1">{COLOR_OPTIONS.map(opt => (<button key={opt.hex} type="button" onClick={() => setSelectedColor(opt.hex)} className={`w-5 h-5 rounded border shadow-sm transition-all ${selectedColor === opt.hex ? 'ring-2 ring-blue-500 ring-offset-1 scale-110' : 'hover:scale-105'}`} style={{ backgroundColor: opt.hex }} />))}</div><Button onClick={handleAdd} className="w-full">Create Department</Button></div></div><div className="space-y-2 max-h-64 overflow-auto border dark:border-slate-700 rounded p-1 bg-slate-50/50">{localConfigs.map((c, idx) => (<div key={idx} className="space-y-1"><div className="flex justify-between items-center bg-white dark:bg-slate-800 p-1.5 rounded border border-slate-200 dark:border-slate-700 gap-2"><button onClick={() => setActivePickerIdx(activePickerIdx === idx ? null : idx)} className="w-5 h-5 rounded-full shrink-0 border shadow-sm transition-transform hover:scale-110" style={{ backgroundColor: c.color }} /><input type="text" className="flex-1 bg-transparent font-black text-[11px] uppercase outline-none focus:border-b border-blue-500" value={c.name} onBlur={e => handleUpdateName(idx, e.target.value)} onChange={e => { const n = [...localConfigs]; n[idx].name = e.target.value; setLocalConfigs(n); }} /><button onClick={() => handleRemove(idx)} className="text-red-400 hover:text-red-600 p-1"><Trash2 size={14}/></button></div>{activePickerIdx === idx && (<div className="bg-white dark:bg-slate-900 p-2 rounded border-2 border-blue-500 grid grid-cols-6 gap-1 animate-in slide-in-from-top-1 z-10 shadow-lg">{COLOR_OPTIONS.map(opt => (<button key={opt.hex} type="button" onClick={() => handleUpdateColor(idx, opt.hex)} className="w-full aspect-square rounded border shadow-sm hover:scale-110 transition-transform" style={{ backgroundColor: opt.hex }} />))}</div>)}</div>))}</div></div></Modal>
-          );
-        }
-
-        function BulkPaymentModal({ staff, deptConfigs, salaries, onClose, onSave }) {
-          const [yr, setYr] = useState(new Date().getFullYear());
-          const [mo, setMo] = useState(MONTHS[new Date().getMonth()]);
-          const [dt, setDt] = useState(new Date().toISOString().split('T')[0]);
-          const debtMap = useMemo(() => { const map = {}; salaries.forEach(s => { const name = (s.staffName || "").trim().toLowerCase(); if (!name) return; if (!map[name]) map[name] = 0; const amt = Number(s.amount); const type = String(s.type).toLowerCase(); if (type === 'advance') map[name] += amt; if (type === 'repayment') map[name] -= amt; }); return map; }, [salaries]);
-          const [rows, setRows] = useState(staff.map(s => ({ id: s.id, name: s.name, salary: s.baseSalary||0, advance: 0, repayment: 0, notes: "", included: true, department: s.department })));
-          const update = (id, f, v) => { setRows(prevRows => prevRows.map(r => { if (r.id !== id) return r; let nextRow = { ...r, [f]: v }; if (f === 'repayment') { const member = staff.find(s => s.id === id); const base = member?.baseSalary || 0; nextRow.salary = Math.max(0, base - v); } return nextRow; })); };
-          const totalPayout = useMemo(() => { return rows.reduce((sum, r) => { if (!r.included) return sum; return sum + (Number(r.salary) + Number(r.advance)); }, 0); }, [rows]);
-          return (
-            <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/30">
-                <div className="bg-white dark:bg-slate-900 w-full max-w-4xl max-h-[90vh] h-auto rounded-xl shadow-2xl overflow-hidden border-2 border-slate-400 dark:border-slate-700 flex flex-col animate-in zoom-in-95 duration-150">
-                    <div className="px-4 py-2 bg-slate-50 dark:bg-slate-800 border-b-2 border-slate-400 dark:border-slate-700 flex justify-between items-center shrink-0">
-                        <div className="flex items-center gap-4"><h3 className="text-[16px] font-black uppercase tracking-widest text-blue-700 dark:text-blue-400">Payroll Entry</h3><div className="flex gap-2"><input type="date" value={dt} onChange={e => setDt(e.target.value)} className="text-[13px] font-black px-2 py-0.5 border-2 border-slate-400 dark:border-slate-700 dark:bg-slate-900 rounded outline-none" /><select value={yr} onChange={e => setYr(parseInt(e.target.value))} className="text-[13px] font-black px-2 py-0.5 border-2 border-slate-300 dark:border-slate-700 dark:bg-slate-900 rounded bg-white dark:bg-slate-800 outline-none">{[2024, 2025, 2026, 2027, 2028].map(y => <option key={y} value={y}>{y}</option>)}</select><select value={mo} onChange={e => setMo(e.target.value)} className="text-[13px] font-black px-2 py-0.5 border-2 border-slate-300 dark:border-slate-700 dark:bg-slate-900 rounded bg-white dark:bg-slate-800 outline-none">{MONTHS.map(m => <option key={m} value={m}>{m}</option>)}</select></div></div>
-                        <button onClick={onClose} className="p-1 hover:bg-slate-200 rounded text-slate-500 transition-colors"><XCircle size={24}/></button>
-                    </div>
-                    <div className="flex-1 overflow-auto">
-                        <table className="w-full text-left border-collapse table-auto">
-                            <thead className="bg-white dark:bg-slate-900 z-10 border-b-2 border-slate-500 font-black text-slate-500 uppercase text-[12px] sticky top-0">
-                                <tr><th className="p-2 w-10 text-center bg-slate-50 dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700"><input type="checkbox" checked={rows.every(r=>r.included)} onChange={e => setRows(rows.map(r=>({...r,included:e.target.checked})))} className="w-5 h-4 ml-1"/></th><th className="p-2 min-w-[140px] max-w-[140px] text-[13px] font-black uppercase tracking-tighter bg-slate-50 dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 text-left">Employee</th><th className="p-2 w-24 text-right font-black uppercase tracking-tighter bg-slate-50/50 dark:bg-slate-800/50 text-red-500 border-b border-slate-200 dark:border-slate-700 border-r dark:border-slate-700/50">Owed</th><th className="p-2 w-16 text-center font-black uppercase tracking-tighter bg-slate-100 dark:bg-slate-800/80 text-slate-400 border-b border-slate-200 dark:border-slate-700" title="Salary already paid this month">PAID</th><th className="p-2 w-16 text-center font-black uppercase tracking-tighter bg-slate-100 dark:bg-slate-800/80 text-slate-400 border-b border-slate-200 dark:border-slate-700 border-r dark:border-slate-700/50" title="Repayments already made this month">REPAID</th><th className="p-2 w-20 text-center font-black uppercase tracking-tighter bg-slate-50 dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700">+ Sal</th><th className="p-2 w-20 text-center font-black uppercase tracking-tighter bg-slate-50 dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700">+ Adv</th><th className="p-2 w-20 text-center font-black uppercase tracking-tighter bg-slate-50 dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700">+ Rep</th><th className="p-2 text-[12px] font-black uppercase tracking-tighter bg-slate-50 dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 w-full text-left">Notes</th></tr>
-                            </thead>
-                            <tbody>
-                                {rows.map(r => {
-                                    const rowBg = r.included ? getDeptRowColor(r.department, deptConfigs) : 'transparent';
-                                    const currentOwed = debtMap[(r.name || "").toLowerCase().trim()] || 0;
-                                    const alreadyPaid = salaries.some(s => (s.staffName || "").trim().toLowerCase() === (r.name || "").toLowerCase().trim() && Number(s.year) === Number(yr) && isSameMonth(s.month, mo) && String(s.type).toLowerCase() === 'salary');
-                                    const thisMonthRecs = salaries.filter(s => (s.staffName || "").trim().toLowerCase() === (r.name || "").toLowerCase().trim() && Number(s.year) === Number(yr) && isSameMonth(s.month, mo));
-                                    const prevSal = thisMonthRecs.filter(s => String(s.type).toLowerCase() === 'salary').reduce((a,c) => a + Number(c.amount), 0);
-                                    const prevRep = thisMonthRecs.filter(s => String(s.type).toLowerCase() === 'repayment').reduce((a,c) => a + Number(c.amount), 0);
-                                    return (
-                                        <tr key={r.id} className={`${r.included?'':'opacity-30'} border-b border-slate-100 dark:border-slate-800 transition-colors leading-none`}><td className="p-1 text-center align-middle" style={{ backgroundColor: rowBg }}><input type="checkbox" checked={r.included} onChange={e => update(r.id,'included',e.target.checked)} className="w-5 h-4 ml-1 cursor-pointer"/></td><td className="p-1 min-w-[140px] max-w-[140px] font-black text-[15px] text-slate-900 dark:text-slate-100 align-middle" style={{ backgroundColor: rowBg }}><div className="flex items-center gap-1.5 overflow-visible">{alreadyPaid && (<div className="group relative shrink-0"><AlertTriangle size={15} className="text-red-600 animate-pulse cursor-help" /><div className="absolute left-0 bottom-full mb-1 hidden group-hover:block bg-red-600 text-white text-[11px] px-2 py-1 rounded shadow-lg whitespace-nowrap z-50 font-black uppercase font-sans">Paid {mo}</div></div>)}<span className="truncate">{String(r.name)}</span></div></td><td className="p-1 text-right font-black text-[13px] text-red-500/80 align-middle whitespace-nowrap pr-3 border-r dark:border-slate-700/30" style={{ backgroundColor: rowBg }}>฿{currentOwed.toLocaleString()}</td><td className="p-1 text-center font-bold text-[11px] text-slate-700 dark:text-slate-300 align-middle" style={{ backgroundColor: rowBg }}>{prevSal > 0 ? prevSal.toLocaleString() : '-'}</td><td className="p-1 text-center font-bold text-[11px] text-slate-700 dark:text-slate-300 align-middle border-r dark:border-slate-700/30" style={{ backgroundColor: rowBg }}>{prevRep > 0 ? prevRep.toLocaleString() : '-'}</td><td className="p-1 text-center align-middle" style={{ backgroundColor: rowBg }}><input type="number" className="w-16 border border-slate-300 dark:border-slate-700 dark:bg-slate-900 rounded font-black text-[15px] text-center outline-none focus:border-blue-500" value={r.salary} onChange={e => update(r.id,'salary',parseFloat(e.target.value)||0)} /></td><td className="p-1 text-center align-middle" style={{ backgroundColor: rowBg }}><input type="number" className="w-16 border border-slate-300 dark:border-slate-700 dark:bg-slate-900 rounded font-black text-[15px] text-center text-red-600 outline-none focus:border-blue-500" value={r.advance} onChange={e => update(r.id,'advance',parseFloat(e.target.value)||0)} /></td><td className="p-1 text-center align-middle" style={{ backgroundColor: rowBg }}><input type="number" className="w-16 border border-slate-300 dark:border-slate-700 dark:bg-slate-900 rounded font-black text-[15px] text-center text-green-600 outline-none focus:border-blue-500" value={r.repayment} onChange={e => update(r.id,'repayment',parseFloat(e.target.value)||0)} /></td><td className="p-1 align-middle w-full" style={{ backgroundColor: rowBg }}><input type="text" className="w-full border border-slate-200 dark:border-slate-800 dark:bg-slate-800 px-2 py-1.5 rounded text-[14px] font-medium outline-none" placeholder="..." value={r.notes} onChange={e => update(r.id,'notes',e.target.value)} /></td></tr>
-                                    )})}
-                            </tbody>
-                        </table>
-                    </div>
-                    <div className="p-3 bg-slate-50 dark:bg-slate-800 border-t-2 border-slate-400 dark:border-slate-700 flex justify-between items-center shrink-0 shadow-inner">
-                        <div className="flex flex-col"><span className="text-[10px] font-black uppercase text-slate-400 tracking-tighter">Total Net Payout</span><span className="text-[17px] font-black text-blue-600">฿{totalPayout.toLocaleString()}</span></div>
-                        <div className="flex gap-3"><Button variant="outline" onClick={onClose} className="px-6 py-2 uppercase font-black tracking-tight text-[13px]">Cancel</Button><Button onClick={() => onSave(rows, yr, mo, dt, totalPayout)} className="px-8 py-2 text-[13px] font-black uppercase tracking-widest bg-blue-700">Submit Payroll</Button></div>
-                    </div>
-                </div>
-            </div>
-          ); 
         }
 
         const root = ReactDOM.createRoot(document.getElementById('root'));
