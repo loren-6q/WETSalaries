@@ -7,6 +7,23 @@
     <!-- Favicon: Blue Baht Sign -->
     <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%232563eb'/%3E%3Ctext x='50%25' y='50%25' dominant-baseline='central' text-anchor='middle' fill='white' font-family='sans-serif' font-weight='900' font-size='20'%3E฿%3C/text%3E%3C/svg%3E">
     
+    <!-- Global Error Handler to catch silent CDN/Network failures -->
+    <script>
+      window.addEventListener('error', function(event) {
+        if (event.message && event.message.includes('ResizeObserver')) return; // Ignore harmless browser extensions
+        const errDiv = document.createElement('div');
+        errDiv.style.cssText = 'position: fixed; top: 0; left: 0; right: 0; padding: 15px; background: #fee2e2; color: #991b1b; z-index: 9999; font-family: monospace; border-bottom: 2px solid #b91c1c; font-size: 12px; font-weight: bold;';
+        errDiv.innerHTML = '⚠️ Critical Script Error: ' + event.message;
+        document.body.appendChild(errDiv);
+      });
+      window.addEventListener('unhandledrejection', function(event) {
+        const errDiv = document.createElement('div');
+        errDiv.style.cssText = 'position: fixed; top: 0; left: 0; right: 0; padding: 15px; background: #fee2e2; color: #991b1b; z-index: 9999; font-family: monospace; border-bottom: 2px solid #b91c1c; font-size: 12px; font-weight: bold;';
+        errDiv.innerHTML = '⚠️ Network/Promise Failure: ' + (event.reason ? event.reason.message || event.reason : 'Unknown Error');
+        document.body.appendChild(errDiv);
+      });
+    </script>
+
     <!-- Tailwind CSS for styling -->
     <script src="https://cdn.tailwindcss.com"></script>
     
@@ -20,13 +37,14 @@
         "react": "https://esm.sh/react@18.2.0",
         "react-dom": "https://esm.sh/react-dom@18.2.0",
         "react-dom/client": "https://esm.sh/react-dom@18.2.0/client",
+        "react/jsx-runtime": "https://esm.sh/react@18.2.0/jsx-runtime",
         "lucide-react": "https://esm.sh/lucide-react@0.284.0?external=react"
       }
     }
     </script>
 
-    <!-- Babel for JSX processing -->
-    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <!-- Babel for JSX processing (Locked to stable 7.24.0 to prevent silent updates from breaking the app) -->
+    <script src="https://unpkg.com/@babel/standalone@7.24.0/babel.min.js"></script>
     
     <style>
       table { border-collapse: collapse; width: 100%; }
@@ -833,8 +851,31 @@
           );
         }
 
+        class ErrorBoundary extends React.Component {
+          constructor(props) {
+            super(props);
+            this.state = { hasError: false, error: null };
+          }
+          static getDerivedStateFromError(error) {
+            return { hasError: true, error };
+          }
+          render() {
+            if (this.state.hasError) {
+              return (
+                <div className="p-8 h-screen w-full flex flex-col items-center justify-center bg-red-50 text-red-900">
+                  <AlertTriangle size={64} className="text-red-500 mb-4" />
+                  <h1 className="text-2xl font-black mb-2 uppercase">Application Crashed</h1>
+                  <p className="font-medium mb-4 text-center max-w-md">Something went wrong inside the application. Please check your network connection or the error below.</p>
+                  <pre className="bg-red-950 text-red-50 p-4 rounded text-[10px] max-w-2xl overflow-auto w-full">{this.state.error?.toString()}</pre>
+                </div>
+              );
+            }
+            return this.props.children;
+          }
+        }
+
         const root = ReactDOM.createRoot(document.getElementById('root'));
-        root.render(<App />);
+        root.render(<ErrorBoundary><App /></ErrorBoundary>);
     </script>
     <script src="https://loren-6q.github.io/WETNav/nav.js"></script>
 </body>
